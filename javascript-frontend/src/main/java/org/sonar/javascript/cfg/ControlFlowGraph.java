@@ -7,6 +7,8 @@ import java.util.List;
 import java.util.Set;
 import org.sonar.plugins.javascript.api.tree.ScriptTree;
 import org.sonar.plugins.javascript.api.tree.Tree;
+import org.sonar.plugins.javascript.api.tree.statement.ExpressionStatementTree;
+import org.sonar.plugins.javascript.api.tree.statement.IfStatementTree;
 import org.sonar.plugins.javascript.api.visitors.BaseTreeVisitor;
 
 public class ControlFlowGraph {
@@ -20,7 +22,6 @@ public class ControlFlowGraph {
     this.end = new EndNode(endPredecessors);
     this.start = blocks.isEmpty() ? end : blocks.get(0);
     for (ControlFlowNode endPredecessor : endPredecessors) {
-      end.predecessors().add(endPredecessor);
       endPredecessor.successors().add(end);
     }
   }
@@ -70,20 +71,59 @@ public class ControlFlowGraph {
   private static class ControlFlowParser extends BaseTreeVisitor {
 
     private final List<ControlFlowNode> blocks = new ArrayList<>();
-    private final Set<ControlFlowNode> endPredecessors = new HashSet<>();
+    private final Set<ControlFlowBlock> nextPredecessors = new HashSet<>();
+    private ControlFlowBlock currentBlock = null;
 
     public ControlFlowGraph build() {
-      return new ControlFlowGraph(blocks, endPredecessors);
+      return new ControlFlowGraph(blocks, ImmutableSet.<ControlFlowNode>copyOf(nextPredecessors));
     }
 
     @Override
     public void visitScript(ScriptTree tree) {
-      if (tree.items() != null) {
-        ControlFlowBlock block = new ControlFlowBlock();
-        blocks.add(block);
-        endPredecessors.add(block);
-      }
       super.visitScript(tree);
+
+      if (currentBlock != null) {
+        nextPredecessors.add(currentBlock);
+      }
+    }
+
+    @Override
+    public void visitIfStatement(IfStatementTree tree) {
+      if (currentBlock == null) {
+        currentBlock = createBlock();
+      }
+      ControlFlowBlock thenBlock = createBlock();
+      currentBlock.addSuccessor(thenBlock);
+      nextPredecessors.add(thenBlock);
+      if (tree.elseClause() != null) {
+        ControlFlowBlock elseBlock = createBlock();
+        currentBlock.addSuccessor(elseBlock);
+        nextPredecessors.add(elseBlock);
+      } else {
+        nextPredecessors.add(currentBlock);
+      }
+      super.visitIfStatement(tree);
+      currentBlock = null;
+    }
+
+    @Override
+    public void visitExpressionStatement(ExpressionStatementTree tree) {
+      if (currentBlock == null) {
+        currentBlock = createBlock();
+        for (ControlFlowBlock predecessor : nextPredecessors) {
+          predecessor.addSuccessor(currentBlock);
+        }
+        nextPredecessors.clear();
+        nextPredecessors.add(currentBlock);
+      }
+
+      super.visitExpressionStatement(tree);
+    }
+
+    private ControlFlowBlock createBlock() {
+      ControlFlowBlock block = new ControlFlowBlock();
+      blocks.add(block);
+      return block;
     }
 
   }

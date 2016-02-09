@@ -18,4 +18,9 @@ public class ControlFlowBlock implements ControlFlowNode {
     return successors;
   }
 
+  public void addSuccessor(ControlFlowBlock successor) {
+    successors.add(successor);
+    successor.predecessors.add(this);
+  }
+
 }
