@@ -1,17 +1,27 @@
 package org.sonar.javascript.cfg;
 
 import com.google.common.base.Charsets;
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import com.sonar.sslr.api.typed.ActionParser;
 import org.fest.assertions.Assertions;
 import org.fest.assertions.GenericAssert;
+import org.junit.Rule;
 import org.junit.Test;
+import org.junit.rules.ExpectedException;
 import org.sonar.javascript.parser.JavaScriptParserBuilder;
+import org.sonar.plugins.javascript.api.tree.ScriptTree;
 import org.sonar.plugins.javascript.api.tree.Tree;
+import org.sonar.plugins.javascript.api.tree.Tree.Kind;
+import org.sonar.plugins.javascript.api.tree.statement.ExpressionStatementTree;
 
 import static org.fest.assertions.Assertions.assertThat;
 import static org.sonar.javascript.cfg.ControlFlowGraphTest.ControlFlowNodeAssert.assertNode;
 
 public class ControlFlowGraphTest {
+
+  @Rule
+  public ExpectedException thrown = ExpectedException.none();
 
   private ActionParser<Tree> parser = JavaScriptParserBuilder.createParser(Charsets.UTF_8);
 
@@ -35,7 +45,10 @@ public class ControlFlowGraphTest {
   @Test
   public void simple_statements() throws Exception {
     ControlFlowGraph g = build("foo(); var a; a = 2;", 1);
-    assertNode(g.start()).hasSuccessors(g.end());
+    assertNode(g.block(0)).hasSuccessors(g.end());
+    assertThat(g.block(0).elements()).hasSize(3);
+    ExpressionStatementTree firstElement = (ExpressionStatementTree) (g.block(0).elements().get(0));
+    assertThat(firstElement.expression().is(Kind.CALL_EXPRESSION)).isTrue();
   }
 
   @Test
@@ -47,23 +60,47 @@ public class ControlFlowGraphTest {
 
   @Test
   public void if_then_else() throws Exception {
-    ControlFlowGraph g = build("if (a) { foo(); } else { bar(); }", 3);
+    ControlFlowGraph g = build("if (a) { f1(); } else { f2(); }", 3);
     assertNode(g.block(0)).hasSuccessors(g.block(1), g.block(2));
     assertNode(g.block(1)).hasSuccessors(g.end());
     assertNode(g.block(2)).hasSuccessors(g.end());
   }
 
   @Test
-  public void if_then_followed_by_block() throws Exception {
-    ControlFlowGraph g = build("if (a) { foo(); } bar();", 3);
+  public void nested_if() throws Exception {
+    ControlFlowGraph g = build("if (a) { if (b) { f1(); } f2(); } f3();", 5);
+    assertNode(g.block(0)).hasSuccessors(g.block(1), g.block(4));
+    assertNode(g.block(1)).hasSuccessors(g.block(2), g.block(3));
+    assertNode(g.block(2)).hasSuccessors(g.block(3));
+    assertNode(g.block(3)).hasSuccessors(g.block(4));
+    assertNode(g.block(4)).hasSuccessors(g.end());
+  }
+
+  @Test
+  public void return_statement() throws Exception {
+    ControlFlowGraph g = build("if (a) { return; } f1();", 3);
     assertNode(g.block(0)).hasSuccessors(g.block(1), g.block(2));
-    assertNode(g.block(1)).hasSuccessors(g.block(2));
+    assertNode(g.block(1)).hasSuccessors(g.end());
     assertNode(g.block(2)).hasSuccessors(g.end());
+
+    g = build("if (a) { f1() } else { return; } f2();", 4);
+    assertNode(g.block(0)).hasSuccessors(g.block(1), g.block(2));
+    assertNode(g.block(1)).hasSuccessors(g.block(3));
+    assertNode(g.block(2)).hasSuccessors(g.end());
+    assertNode(g.block(3)).hasSuccessors(g.end());
+  }
+
+  @Test
+  public void invalid_empty_block() throws Exception {
+    MutableBlock block = new MutableBlock();
+    thrown.expect(IllegalArgumentException.class);
+    thrown.expectMessage("Cannot build block 0");
+    new ControlFlowGraph(ImmutableList.of(block), ImmutableSet.of(block));
   }
 
   private ControlFlowGraph build(String sourceCode, int expectedNumberOfBlocks) {
     Tree tree = parser.parse(sourceCode);
-    ControlFlowGraph cfg = ControlFlowGraph.build(tree);
+    ControlFlowGraph cfg = ControlFlowGraph.build((ScriptTree) tree);
     assertThat(cfg.blocks()).hasSize(expectedNumberOfBlocks);
     assertThat(cfg.end().successors()).isEmpty();
     if (!cfg.blocks().isEmpty()) {
@@ -84,11 +121,6 @@ public class ControlFlowGraphTest {
 
     public ControlFlowNodeAssert hasNoPredecessor() {
       Assertions.assertThat(actual.predecessors()).isEmpty();
-      return this;
-    }
-
-    public ControlFlowNodeAssert hasPredecessors(ControlFlowNode... predecessors) {
-      Assertions.assertThat(actual.predecessors()).containsOnly(predecessors);
       return this;
     }
 

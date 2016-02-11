@@ -1,35 +1,60 @@
 package org.sonar.javascript.cfg;
 
+import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
-import java.util.ArrayList;
-import java.util.HashSet;
+import com.google.common.collect.ImmutableSetMultimap;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import org.sonar.plugins.javascript.api.tree.ScriptTree;
 import org.sonar.plugins.javascript.api.tree.Tree;
-import org.sonar.plugins.javascript.api.tree.statement.ExpressionStatementTree;
-import org.sonar.plugins.javascript.api.tree.statement.IfStatementTree;
-import org.sonar.plugins.javascript.api.visitors.BaseTreeVisitor;
 
 public class ControlFlowGraph {
 
   private final ControlFlowNode start;
-  private final ControlFlowNode end;
-  private final List<ControlFlowNode> blocks;
+  private final ControlFlowNode end = new EndNode();
+  private final List<ControlFlowBlock> blocks;
+  private final ImmutableSetMultimap<ControlFlowNode, ControlFlowNode> predecessors;
+  private final ImmutableSetMultimap<ControlFlowNode, ControlFlowNode> successors;
 
-  private ControlFlowGraph(List<ControlFlowNode> blocks, Set<ControlFlowNode> endPredecessors) {
-    this.blocks = blocks;
-    this.end = new EndNode(endPredecessors);
-    this.start = blocks.isEmpty() ? end : blocks.get(0);
-    for (ControlFlowNode endPredecessor : endPredecessors) {
-      endPredecessor.successors().add(end);
+  ControlFlowGraph(List<MutableBlock> blocks, Set<MutableBlock> endPredecessors) {
+
+    Map<MutableBlock, ControlFlowNode> immutableBlockByMutable = new HashMap<>();
+    ImmutableList.Builder<ControlFlowBlock> blockListBuilder = ImmutableList.builder();
+    int index = 0;
+    for (MutableBlock mutableBlock : blocks) {
+      ImmutableBlock immutableBlock = new ImmutableBlock(index, mutableBlock.elements());
+      immutableBlockByMutable.put(mutableBlock, immutableBlock);
+      blockListBuilder.add(immutableBlock);
+      index++;
     }
+    
+    ImmutableSetMultimap.Builder<ControlFlowNode, ControlFlowNode> successorBuilder = ImmutableSetMultimap.builder();
+    ImmutableSetMultimap.Builder<ControlFlowNode, ControlFlowNode> predecessorBuilder = ImmutableSetMultimap.builder();
+    for (MutableBlock mutableBlock : blocks) {
+      ControlFlowNode immutableBlock = immutableBlockByMutable.get(mutableBlock);
+      for (MutableBlock mutableBlockSuccessor : mutableBlock.successors()) {
+        predecessorBuilder.put(immutableBlockByMutable.get(mutableBlockSuccessor), immutableBlock);
+        successorBuilder.put(immutableBlock, immutableBlockByMutable.get(mutableBlockSuccessor));
+      }
+    }
+    
+    for (MutableBlock endPredecessor : endPredecessors) {
+      ControlFlowNode immutableBlock = immutableBlockByMutable.get(endPredecessor);
+      successorBuilder.put(immutableBlock, end);
+      predecessorBuilder.put(end, immutableBlock);
+    }
+    
+    this.start = blocks.isEmpty() ? end : immutableBlockByMutable.get(blocks.get(0));
+    this.blocks = blockListBuilder.build();
+    this.predecessors = predecessorBuilder.build();
+    this.successors = successorBuilder.build();
   }
 
-  public static ControlFlowGraph build(Tree tree) {
-    ControlFlowParser controlFlowParser = new ControlFlowParser();
-    tree.accept(controlFlowParser);
-    return controlFlowParser.build();
+  public static ControlFlowGraph build(ScriptTree tree) {
+    return new ControlFlowGraphBuilder().createGraph(tree);
   }
 
   public ControlFlowNode start() {
@@ -40,25 +65,52 @@ public class ControlFlowGraph {
     return end;
   }
 
-  public List<ControlFlowNode> blocks() {
+  public List<ControlFlowBlock> blocks() {
     return blocks;
   }
 
-  public ControlFlowNode block(int blockIndex) {
+  public ControlFlowBlock block(int blockIndex) {
     return blocks().get(blockIndex);
   }
 
-  private static class EndNode implements ControlFlowNode {
-
-    private final Set<ControlFlowNode> predecessors;
-
-    public EndNode(Set<ControlFlowNode> predecessors) {
-      this.predecessors = predecessors;
+  private class ImmutableBlock implements ControlFlowBlock {
+    
+    private final int index;
+    private final List<Tree> elements;
+    
+    public ImmutableBlock(int index, List<Tree> elements) {
+      Preconditions.checkArgument(!elements.isEmpty(), "Cannot build block " + index + " without any element");
+      this.index = index;
+      this.elements = elements;
     }
 
     @Override
     public Set<ControlFlowNode> predecessors() {
-      return predecessors;
+      return predecessors.get(this);
+    }
+
+    @Override
+    public Set<ControlFlowNode> successors() {
+      return successors.get(this);
+    }
+
+    @Override
+    public List<Tree> elements() {
+      return elements;
+    }
+
+    @Override
+    public String toString() {
+      return "Block" + index;
+    }
+
+  }
+  
+  private class EndNode implements ControlFlowNode {
+
+    @Override
+    public Set<ControlFlowNode> predecessors() {
+      return predecessors.get(this);
     }
 
     @Override
@@ -66,66 +118,11 @@ public class ControlFlowGraph {
       return ImmutableSet.of();
     }
 
+    @Override
+    public String toString() {
+      return "End";
+    }
+    
   }
-
-  private static class ControlFlowParser extends BaseTreeVisitor {
-
-    private final List<ControlFlowNode> blocks = new ArrayList<>();
-    private final Set<ControlFlowBlock> nextPredecessors = new HashSet<>();
-    private ControlFlowBlock currentBlock = null;
-
-    public ControlFlowGraph build() {
-      return new ControlFlowGraph(blocks, ImmutableSet.<ControlFlowNode>copyOf(nextPredecessors));
-    }
-
-    @Override
-    public void visitScript(ScriptTree tree) {
-      super.visitScript(tree);
-
-      if (currentBlock != null) {
-        nextPredecessors.add(currentBlock);
-      }
-    }
-
-    @Override
-    public void visitIfStatement(IfStatementTree tree) {
-      if (currentBlock == null) {
-        currentBlock = createBlock();
-      }
-      ControlFlowBlock thenBlock = createBlock();
-      currentBlock.addSuccessor(thenBlock);
-      nextPredecessors.add(thenBlock);
-      if (tree.elseClause() != null) {
-        ControlFlowBlock elseBlock = createBlock();
-        currentBlock.addSuccessor(elseBlock);
-        nextPredecessors.add(elseBlock);
-      } else {
-        nextPredecessors.add(currentBlock);
-      }
-      super.visitIfStatement(tree);
-      currentBlock = null;
-    }
-
-    @Override
-    public void visitExpressionStatement(ExpressionStatementTree tree) {
-      if (currentBlock == null) {
-        currentBlock = createBlock();
-        for (ControlFlowBlock predecessor : nextPredecessors) {
-          predecessor.addSuccessor(currentBlock);
-        }
-        nextPredecessors.clear();
-        nextPredecessors.add(currentBlock);
-      }
-
-      super.visitExpressionStatement(tree);
-    }
-
-    private ControlFlowBlock createBlock() {
-      ControlFlowBlock block = new ControlFlowBlock();
-      blocks.add(block);
-      return block;
-    }
-
-  }
-
+  
 }
