@@ -17,54 +17,30 @@
  * along with this program; if not, write to the Free Software Foundation,
  * Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
  */
-package org.sonar.plugins.javascript.api.symbols;
+package org.sonar.javascript.tree.symbols.type;
 
-import com.google.common.annotations.Beta;
+import org.sonar.plugins.javascript.api.tree.expression.ClassTree;
 
-/**
- * Interface to represent the different type of Symbols.
- */
-@Beta
-public interface Type {
+public class ClassType extends ObjectType {
 
-  Kind kind();
+  private ClassTree classTree;
 
-  Callability callability();
-
-  enum Callability {
-    CALLABLE,
-    NON_CALLABLE,
-    UNKNOWN
+  protected ClassType() {
+    super(Callability.NON_CALLABLE);
   }
 
-  enum Kind {
-    UNKNOWN,
-
-    // PRIMITIVE
-    STRING,
-    NUMBER,
-    BOOLEAN,
-
-    // OBJECT
-    OBJECT,
-    FUNCTION,
-    ARRAY,
-    DATE,
-    CLASS,
-
-    // JQUERY
-    JQUERY_OBJECT,
-    JQUERY_SELECTOR_OBJECT,
-
-    // BACKBONE
-    BACKBONE_MODEL,
-    BACKBONE_MODEL_OBJECT,
-
-    // WEB API
-    WINDOW,
-    DOCUMENT,
-    DOM_ELEMENT,
+  @Override
+  public Kind kind() {
+    return Kind.CLASS;
   }
 
+  public static ClassType create(ClassTree classTree) {
+    ClassType type = new ClassType();
+    type.classTree = classTree;
+    return type;
+  }
 
+  public ClassTree classTree() {
+    return classTree;
+  }
 }

@@ -28,6 +28,7 @@ import org.sonar.javascript.tree.symbols.type.ObjectType.BuiltInObjectType;
 import org.sonar.plugins.javascript.api.symbols.Symbol;
 import org.sonar.plugins.javascript.api.symbols.Type;
 import org.sonar.plugins.javascript.api.symbols.Type.Callability;
+import org.sonar.plugins.javascript.api.symbols.Type.Kind;
 import org.sonar.plugins.javascript.api.symbols.TypeSet;
 import org.sonar.plugins.javascript.api.tree.Tree;
 import org.sonar.plugins.javascript.api.tree.declaration.FunctionDeclarationTree;
@@ -36,6 +37,7 @@ import org.sonar.plugins.javascript.api.tree.expression.ArrayLiteralTree;
 import org.sonar.plugins.javascript.api.tree.expression.AssignmentExpressionTree;
 import org.sonar.plugins.javascript.api.tree.expression.BinaryExpressionTree;
 import org.sonar.plugins.javascript.api.tree.expression.CallExpressionTree;
+import org.sonar.plugins.javascript.api.tree.expression.ClassTree;
 import org.sonar.plugins.javascript.api.tree.expression.ExpressionTree;
 import org.sonar.plugins.javascript.api.tree.expression.IdentifierTree;
 import org.sonar.plugins.javascript.api.tree.expression.LiteralTree;
@@ -108,6 +110,15 @@ public class TypeVisitor extends DoubleDispatchVisitor {
   }
 
   @Override
+  public void visitClass(ClassTree tree) {
+    super.visitClass(tree);
+
+    if (tree.name() != null) {
+      addTypes(tree.name().symbol(), tree.types());
+    }
+  }
+
+  @Override
   public void visitCallExpression(CallExpressionTree tree) {
     super.visitCallExpression(tree);
 
@@ -170,7 +181,17 @@ public class TypeVisitor extends DoubleDispatchVisitor {
   public void visitNewExpression(NewExpressionTree tree) {
     super.visitNewExpression(tree);
 
-    if (tree.expression().types().contains(Type.Kind.BACKBONE_MODEL)) {
+    TypeSet types = tree.expression().types();
+
+    if (types.contains(Kind.CLASS)) {
+      ObjectType objectType = ObjectType.create(Callability.NON_CALLABLE);
+      Type classType = types.getUniqueType(Kind.CLASS);
+      if (classType != null) {
+        objectType.classType((ClassType) classType);
+      }
+      addType(tree, objectType);
+
+    } else if (types.contains(Type.Kind.BACKBONE_MODEL)) {
       addType(tree, ObjectType.FrameworkType.BACKBONE_MODEL_OBJECT);
 
     } else if (Utils.identifierWithName(tree.expression(), "String")) {

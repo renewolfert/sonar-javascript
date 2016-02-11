@@ -14,3 +14,5 @@ function foo() {
   }
   var x = new D();
 }
+
+var z = new B();
