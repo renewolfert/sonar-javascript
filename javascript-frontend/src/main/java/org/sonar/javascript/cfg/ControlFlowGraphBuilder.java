@@ -19,17 +19,22 @@
  */
 package org.sonar.javascript.cfg;
 
+import com.google.common.collect.HashMultimap;
 import com.google.common.collect.Lists;
+import com.google.common.collect.SetMultimap;
+import com.google.common.collect.Sets;
 import java.util.ArrayDeque;
-import java.util.ArrayList;
 import java.util.Deque;
 import java.util.HashSet;
+import java.util.LinkedList;
 import java.util.List;
+import java.util.Queue;
 import java.util.Set;
 import org.sonar.plugins.javascript.api.tree.ScriptTree;
 import org.sonar.plugins.javascript.api.tree.Tree;
 import org.sonar.plugins.javascript.api.tree.Tree.Kind;
 import org.sonar.plugins.javascript.api.tree.statement.BlockTree;
+import org.sonar.plugins.javascript.api.tree.statement.BreakStatementTree;
 import org.sonar.plugins.javascript.api.tree.statement.ContinueStatementTree;
 import org.sonar.plugins.javascript.api.tree.statement.DoWhileStatementTree;
 import org.sonar.plugins.javascript.api.tree.statement.IfStatementTree;
@@ -38,10 +43,10 @@ import org.sonar.plugins.javascript.api.tree.statement.WhileStatementTree;
 
 class ControlFlowGraphBuilder {
 
-  private final List<MutableBlock> blocks = new ArrayList<>();
+  private final List<MutableBlock> blocks = new LinkedList<>();
   private final Set<MutableBlock> endPredecessors = new HashSet<>();
   private MutableBlock currentBlock = createBlock();
-  private final Deque<MutableBlock> loopContinueTargets = new ArrayDeque<>();
+  private final Deque<Loop> loops = new ArrayDeque<>();
 
   public ControlFlowGraph createGraph(ScriptTree tree) {
     endPredecessors.add(currentBlock);
@@ -53,20 +58,41 @@ class ControlFlowGraphBuilder {
   }
 
   private void removeEmptyBlocks() {
-    List<MutableBlock> blocksToRemove = new ArrayList<>();
-    for (MutableBlock endPredecessor : endPredecessors) {
-      if (endPredecessor.isEmpty()) {
-        blocksToRemove.add(endPredecessor);
-      }
-    }
+    Set<MutableBlock> emptyBlocks = new HashSet<>();
+    SetMultimap<MutableBlock, MutableBlock> replacements = HashMultimap.create();
     for (MutableBlock block : blocks) {
-      boolean removed = block.successors().removeAll(blocksToRemove);
-      if (removed) {
-        endPredecessors.add(block);
+      if (block.isEmpty()) {
+        emptyBlocks.add(block);
+        replacements.putAll(block, block.successors());
       }
     }
-    blocks.removeAll(blocksToRemove);
-    endPredecessors.removeAll(blocksToRemove);
+
+    Queue<MutableBlock> queue = new ArrayDeque<>(replacements.keySet());
+    while (!queue.isEmpty()) {
+      MutableBlock block = queue.remove();
+      Set<MutableBlock> blockReplacements = replacements.get(block);
+      Set<MutableBlock> emptyBlockReplacements = Sets.intersection(blockReplacements, emptyBlocks);
+      blockReplacements.removeAll(emptyBlockReplacements);
+      for (MutableBlock emptyBlock : emptyBlockReplacements) {
+        blockReplacements.addAll(replacements.get(emptyBlock));
+      }
+      if (!Sets.intersection(blockReplacements, emptyBlocks).isEmpty()) {
+        queue.add(block);
+      }
+    }
+
+    for (MutableBlock block : blocks) {
+      for (MutableBlock emptySuccessor : Sets.intersection(emptyBlocks, block.successors())) {
+        block.successors().remove(emptySuccessor);
+        block.successors().addAll(replacements.get(emptySuccessor));
+        if (endPredecessors.contains(emptySuccessor)) {
+          endPredecessors.add(block);
+        }
+      }
+    }
+
+    blocks.removeAll(emptyBlocks);
+    endPredecessors.removeAll(emptyBlocks);
   }
 
   private void build(List<? extends Tree> trees) {
@@ -86,6 +112,8 @@ class ControlFlowGraphBuilder {
       visitDoWhileStatement((DoWhileStatementTree) tree);
     } else if (tree.is(Kind.CONTINUE_STATEMENT)) {
       visitContinueStatement((ContinueStatementTree) tree);
+    } else if (tree.is(Kind.BREAK_STATEMENT)) {
+      visitBreakStatement((BreakStatementTree) tree);
     } else if (tree.is(Kind.RETURN_STATEMENT)) {
       visitReturnStatement(tree);
     } else if (tree.is(Kind.BLOCK)) {
@@ -104,7 +132,13 @@ class ControlFlowGraphBuilder {
   private void visitContinueStatement(ContinueStatementTree tree) {
     currentBlock.addElement(tree);
     currentBlock.successors().clear();
-    currentBlock.addSuccessor(loopContinueTargets.peek());
+    currentBlock.addSuccessor(loops.peek().continueTarget);
+  }
+
+  private void visitBreakStatement(BreakStatementTree tree) {
+    currentBlock.addElement(tree);
+    currentBlock.successors().clear();
+    currentBlock.addSuccessor(loops.peek().breakTarget);
   }
 
   private void visitIfStatement(IfStatementTree tree) {
@@ -122,9 +156,9 @@ class ControlFlowGraphBuilder {
     conditionBlock.addSuccessor(currentBlock);
     conditionBlock.addElement(tree.condition());
 
-    loopContinueTargets.push(conditionBlock);
+    loops.push(new Loop(conditionBlock, currentBlock));
     MutableBlock loopBodyBlock = buildSubFlow(tree.statement(), conditionBlock);
-    loopContinueTargets.pop();
+    loops.pop();
 
     conditionBlock.addSuccessor(loopBodyBlock);
     currentBlock = conditionBlock;
@@ -135,7 +169,9 @@ class ControlFlowGraphBuilder {
 
   private void visitDoWhileStatement(DoWhileStatementTree tree) {
     MutableBlock conditionBlock = createBlock(tree.condition(), currentBlock);
+    loops.push(new Loop(conditionBlock, currentBlock));
     MutableBlock loopBodyBlock = buildSubFlow(tree.statement(), conditionBlock);
+    loops.pop();
     conditionBlock.addSuccessor(loopBodyBlock);
     currentBlock = createBlock(loopBodyBlock);
   }
@@ -144,11 +180,6 @@ class ControlFlowGraphBuilder {
     currentBlock = createBlock(successor);
     build(subFlowTree);
     return currentBlock;
-  }
-
-  private void buildSubFlow(StatementTree subFlowTree) {
-    currentBlock = createBlock();
-    build(subFlowTree);
   }
 
   private void visitSimpleStatement(Tree tree) {
@@ -168,6 +199,18 @@ class ControlFlowGraphBuilder {
       block.addSuccessor(successor);
     }
     return block;
+  }
+
+  private static class Loop {
+
+    final MutableBlock continueTarget;
+    final MutableBlock breakTarget;
+
+    public Loop(MutableBlock continueTarget, MutableBlock breakTarget) {
+      this.continueTarget = continueTarget;
+      this.breakTarget = breakTarget;
+    }
+
   }
 
 }

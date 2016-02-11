@@ -19,6 +19,7 @@
  */
 package org.sonar.javascript.cfg;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -36,6 +37,8 @@ class MutableBlock {
   }
 
   public void addSuccessor(MutableBlock successor) {
+    Preconditions.checkNotNull(successor);
+    Preconditions.checkArgument(successor != this);
     successors.add(successor);
   }
   
