@@ -110,6 +110,32 @@ public class ControlFlowGraphTest {
   }
 
   @Test
+  public void while_loop() throws Exception {
+    ControlFlowGraph g = build("while (a) { f1(); }", 2);
+    assertNode(g.block(0)).hasSuccessors(g.block(1), g.end());
+    assertNode(g.block(1)).hasSuccessors(g.block(0));
+  }
+
+  @Test
+  public void do_while_loop() throws Exception {
+    ControlFlowGraph g = build("f1(); do { f2(); } while(a); f3();", 4);
+    assertNode(g.block(0)).hasSuccessors(g.block(1));
+    assertNode(g.block(1)).hasSuccessors(g.block(2));
+    assertNode(g.block(2)).hasSuccessors(g.block(1), g.block(3));
+    assertNode(g.block(3)).hasSuccessors(g.end());
+  }
+
+  @Test
+  public void continue_in_while() throws Exception {
+    ControlFlowGraph g = build("while (a) { if (b) { continue; } f1(); } f2();", 5);
+    assertNode(g.block(0)).hasSuccessors(g.block(1), g.block(4));
+    assertNode(g.block(1)).hasSuccessors(g.block(2), g.block(3));
+    assertNode(g.block(2)).hasSuccessors(g.block(0));
+    assertNode(g.block(3)).hasSuccessors(g.block(0));
+    assertNode(g.block(4)).hasSuccessors(g.end());
+  }
+
+  @Test
   public void invalid_empty_block() throws Exception {
     MutableBlock block = new MutableBlock();
     thrown.expect(IllegalArgumentException.class);

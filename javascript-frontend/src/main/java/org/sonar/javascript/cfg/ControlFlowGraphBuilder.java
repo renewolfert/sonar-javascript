@@ -20,7 +20,9 @@
 package org.sonar.javascript.cfg;
 
 import com.google.common.collect.Lists;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Deque;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -28,14 +30,18 @@ import org.sonar.plugins.javascript.api.tree.ScriptTree;
 import org.sonar.plugins.javascript.api.tree.Tree;
 import org.sonar.plugins.javascript.api.tree.Tree.Kind;
 import org.sonar.plugins.javascript.api.tree.statement.BlockTree;
+import org.sonar.plugins.javascript.api.tree.statement.ContinueStatementTree;
+import org.sonar.plugins.javascript.api.tree.statement.DoWhileStatementTree;
 import org.sonar.plugins.javascript.api.tree.statement.IfStatementTree;
 import org.sonar.plugins.javascript.api.tree.statement.StatementTree;
+import org.sonar.plugins.javascript.api.tree.statement.WhileStatementTree;
 
 class ControlFlowGraphBuilder {
 
   private final List<MutableBlock> blocks = new ArrayList<>();
   private final Set<MutableBlock> endPredecessors = new HashSet<>();
   private MutableBlock currentBlock = createBlock();
+  private final Deque<MutableBlock> loopContinueTargets = new ArrayDeque<>();
 
   public ControlFlowGraph createGraph(ScriptTree tree) {
     endPredecessors.add(currentBlock);
@@ -74,6 +80,12 @@ class ControlFlowGraphBuilder {
       visitSimpleStatement(tree);
     } else if (tree.is(Kind.IF_STATEMENT)) {
       visitIfStatement((IfStatementTree) tree);
+    } else if (tree.is(Kind.WHILE_STATEMENT)) {
+      visitWhileStatement((WhileStatementTree) tree);
+    } else if (tree.is(Kind.DO_WHILE_STATEMENT)) {
+      visitDoWhileStatement((DoWhileStatementTree) tree);
+    } else if (tree.is(Kind.CONTINUE_STATEMENT)) {
+      visitContinueStatement((ContinueStatementTree) tree);
     } else if (tree.is(Kind.RETURN_STATEMENT)) {
       visitReturnStatement(tree);
     } else if (tree.is(Kind.BLOCK)) {
@@ -89,20 +101,53 @@ class ControlFlowGraphBuilder {
     endPredecessors.add(currentBlock);
   }
 
+  private void visitContinueStatement(ContinueStatementTree tree) {
+    currentBlock.addElement(tree);
+    currentBlock.successors().clear();
+    currentBlock.addSuccessor(loopContinueTargets.peek());
+  }
+
   private void visitIfStatement(IfStatementTree tree) {
     MutableBlock successor = currentBlock;
     if (tree.elseClause() != null) {
       buildSubFlow(tree.elseClause().statement(), successor);
     }
     MutableBlock elseBlock = currentBlock;
-    buildSubFlow(tree.statement(), successor);
-    MutableBlock thenBlock = currentBlock;
-    currentBlock = createBlock(thenBlock, elseBlock);
-    currentBlock.addElement(tree.condition());
+    MutableBlock thenBlock = buildSubFlow(tree.statement(), successor);
+    currentBlock = createBlock(tree.condition(), thenBlock, elseBlock);
   }
 
-  private void buildSubFlow(StatementTree subFlowTree, MutableBlock successor) {
+  private void visitWhileStatement(WhileStatementTree tree) {
+    MutableBlock conditionBlock = new MutableBlock();
+    conditionBlock.addSuccessor(currentBlock);
+    conditionBlock.addElement(tree.condition());
+
+    loopContinueTargets.push(conditionBlock);
+    MutableBlock loopBodyBlock = buildSubFlow(tree.statement(), conditionBlock);
+    loopContinueTargets.pop();
+
+    conditionBlock.addSuccessor(loopBodyBlock);
+    currentBlock = conditionBlock;
+
+    // This has to be done at the end because blocks have to be in the correct order
+    blocks.add(conditionBlock);
+  }
+
+  private void visitDoWhileStatement(DoWhileStatementTree tree) {
+    MutableBlock conditionBlock = createBlock(tree.condition(), currentBlock);
+    MutableBlock loopBodyBlock = buildSubFlow(tree.statement(), conditionBlock);
+    conditionBlock.addSuccessor(loopBodyBlock);
+    currentBlock = createBlock(loopBodyBlock);
+  }
+
+  private MutableBlock buildSubFlow(StatementTree subFlowTree, MutableBlock successor) {
     currentBlock = createBlock(successor);
+    build(subFlowTree);
+    return currentBlock;
+  }
+
+  private void buildSubFlow(StatementTree subFlowTree) {
+    currentBlock = createBlock();
     build(subFlowTree);
   }
 
@@ -110,6 +155,12 @@ class ControlFlowGraphBuilder {
     currentBlock.addElement(tree);
   }
   
+  private MutableBlock createBlock(Tree element, MutableBlock... successors) {
+    MutableBlock block = createBlock(successors);
+    block.addElement(element);
+    return block;
+  }
+
   private MutableBlock createBlock(MutableBlock... successors) {
     MutableBlock block = new MutableBlock();
     blocks.add(block);
