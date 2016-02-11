@@ -24,6 +24,7 @@ import javax.annotation.Nullable;
 import org.sonar.api.config.Settings;
 import org.sonar.javascript.tree.impl.JavaScriptTree;
 import org.sonar.javascript.tree.impl.SeparatedList;
+import org.sonar.javascript.tree.impl.expression.ClassTreeImpl;
 import org.sonar.javascript.tree.symbols.type.ObjectType.BuiltInObjectType;
 import org.sonar.plugins.javascript.api.symbols.Symbol;
 import org.sonar.plugins.javascript.api.symbols.Type;
@@ -33,6 +34,7 @@ import org.sonar.plugins.javascript.api.symbols.TypeSet;
 import org.sonar.plugins.javascript.api.tree.Tree;
 import org.sonar.plugins.javascript.api.tree.declaration.FunctionDeclarationTree;
 import org.sonar.plugins.javascript.api.tree.declaration.InitializedBindingElementTree;
+import org.sonar.plugins.javascript.api.tree.declaration.MethodDeclarationTree;
 import org.sonar.plugins.javascript.api.tree.expression.ArrayLiteralTree;
 import org.sonar.plugins.javascript.api.tree.expression.AssignmentExpressionTree;
 import org.sonar.plugins.javascript.api.tree.expression.BinaryExpressionTree;
@@ -45,6 +47,7 @@ import org.sonar.plugins.javascript.api.tree.expression.MemberExpressionTree;
 import org.sonar.plugins.javascript.api.tree.expression.NewExpressionTree;
 import org.sonar.plugins.javascript.api.tree.expression.ObjectLiteralTree;
 import org.sonar.plugins.javascript.api.tree.expression.ParenthesisedExpressionTree;
+import org.sonar.plugins.javascript.api.tree.expression.ThisTree;
 import org.sonar.plugins.javascript.api.tree.expression.UnaryExpressionTree;
 import org.sonar.plugins.javascript.api.tree.statement.ForInStatementTree;
 import org.sonar.plugins.javascript.api.tree.statement.ForOfStatementTree;
@@ -54,6 +57,8 @@ public class TypeVisitor extends DoubleDispatchVisitor {
 
   private JQuery jQueryHelper;
   private boolean forLoopVariable = false;
+
+  private ClassTree currentClass = null;
 
   public TypeVisitor(@Nullable Settings settings) {
     if (settings == null) {
@@ -111,10 +116,29 @@ public class TypeVisitor extends DoubleDispatchVisitor {
 
   @Override
   public void visitClass(ClassTree tree) {
+    ClassType classType = ((ClassTreeImpl) tree).classType();
+    if (tree.name() != null) {
+      tree.name().symbol().addType(classType);
+    }
+
+    for (MethodDeclarationTree methodDeclarationTree : tree.methods()) {
+      ExpressionTree name = methodDeclarationTree.name();
+      if (name.is(Tree.Kind.IDENTIFIER_NAME)) {
+        classType.addMethod(((IdentifierTree) name).name(), FunctionType.create(methodDeclarationTree));
+      }
+    }
+
+    currentClass = tree;
+
     super.visitClass(tree);
 
-    if (tree.name() != null) {
-      addTypes(tree.name().symbol(), tree.types());
+    currentClass = null;
+  }
+
+  @Override
+  public void visitThisTree(ThisTree tree) {
+    if (currentClass != null) {
+      addType(tree, ((ClassTreeImpl) currentClass).classType().createObject());
     }
   }
 
@@ -146,8 +170,10 @@ public class TypeVisitor extends DoubleDispatchVisitor {
     inferParameterType(tree);
   }
 
-  private static void addType(ExpressionTree tree, Type type) {
-    ((TypableTree) tree).add(type);
+  private static void addType(ExpressionTree tree, @Nullable Type type) {
+    if (type != null) {
+      ((TypableTree) tree).add(type);
+    }
   }
 
   private static void inferParameterType(CallExpressionTree tree) {
@@ -184,12 +210,10 @@ public class TypeVisitor extends DoubleDispatchVisitor {
     TypeSet types = tree.expression().types();
 
     if (types.contains(Kind.CLASS)) {
-      ObjectType objectType = ObjectType.create(Callability.NON_CALLABLE);
       Type classType = types.getUniqueType(Kind.CLASS);
       if (classType != null) {
-        objectType.classType((ClassType) classType);
+        addType(tree, ((ClassType) classType).createObject());
       }
-      addType(tree, objectType);
 
     } else if (types.contains(Type.Kind.BACKBONE_MODEL)) {
       addType(tree, ObjectType.FrameworkType.BACKBONE_MODEL_OBJECT);
@@ -249,6 +273,14 @@ public class TypeVisitor extends DoubleDispatchVisitor {
       Type arrayType = tree.object().types().getUniqueType(Type.Kind.ARRAY);
       if (arrayType != null && ((ArrayType) arrayType).elementType() != null) {
         addType(tree, ((ArrayType) arrayType).elementType());
+      }
+
+    } else {
+      ObjectType objectType = (ObjectType) tree.object().types().getUniqueType(Kind.OBJECT);
+      if (objectType != null && tree.property() instanceof IdentifierTree) {
+        String property = ((IdentifierTree) tree.property()).name();
+        FunctionType method = objectType.findMethod(property);
+        addType(tree, method);
       }
     }
   }

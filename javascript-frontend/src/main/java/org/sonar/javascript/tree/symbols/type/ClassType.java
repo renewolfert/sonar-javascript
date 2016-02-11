@@ -19,11 +19,16 @@
  */
 package org.sonar.javascript.tree.symbols.type;
 
+import java.util.HashMap;
+import java.util.Map;
+import javax.annotation.Nullable;
 import org.sonar.plugins.javascript.api.tree.expression.ClassTree;
 
 public class ClassType extends ObjectType {
 
   private ClassTree classTree;
+
+  private Map<String, FunctionType> methods = new HashMap<>();
 
   protected ClassType() {
     super(Callability.NON_CALLABLE);
@@ -42,5 +47,20 @@ public class ClassType extends ObjectType {
 
   public ClassTree classTree() {
     return classTree;
+  }
+
+  public ObjectType createObject() {
+    ObjectType objectType = ObjectType.create(Callability.NON_CALLABLE);
+    objectType.classType(this);
+    return objectType;
+  }
+
+  public void addMethod(String name, FunctionType functionType) {
+    methods.put(name, functionType);
+  }
+
+  @Nullable
+  public FunctionType findMethod(String name) {
+    return methods.get(name);
   }
 }

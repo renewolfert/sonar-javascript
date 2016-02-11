@@ -166,4 +166,8 @@ public class ClassTreeImpl extends JavaScriptTree implements ClassTree, TypableT
   public void add(Type type) {
     throw new UnsupportedOperationException();
   }
+
+  public ClassType classType() {
+    return classType;
+  }
 }

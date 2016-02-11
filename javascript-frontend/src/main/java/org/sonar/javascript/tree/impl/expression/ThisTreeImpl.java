@@ -28,11 +28,14 @@ import org.sonar.plugins.javascript.api.symbols.Type;
 import org.sonar.plugins.javascript.api.symbols.TypeSet;
 import org.sonar.plugins.javascript.api.tree.Tree;
 import org.sonar.plugins.javascript.api.tree.expression.ThisTree;
+import org.sonar.plugins.javascript.api.tree.lexical.SyntaxToken;
 import org.sonar.plugins.javascript.api.visitors.DoubleDispatchVisitor;
 
 public class ThisTreeImpl extends JavaScriptTree implements ThisTree, TypableTree {
 
   private final InternalSyntaxToken token;
+
+  private TypeSet types = TypeSet.emptyTypeSet();
 
   public ThisTreeImpl(InternalSyntaxToken token) {
     this.token = token;
@@ -49,6 +52,11 @@ public class ThisTreeImpl extends JavaScriptTree implements ThisTree, TypableTre
   }
 
   @Override
+  public SyntaxToken thisToken() {
+    return token;
+  }
+
+  @Override
   public Iterator<Tree> childrenIterator() {
     return Iterators.<Tree>singletonIterator(
       token);
@@ -61,11 +69,11 @@ public class ThisTreeImpl extends JavaScriptTree implements ThisTree, TypableTre
 
   @Override
   public TypeSet types() {
-    return TypeSet.emptyTypeSet();
+    return types.immutableCopy();
   }
 
   @Override
   public void add(Type type) {
-    throw new UnsupportedOperationException();
+    types.add(type);
   }
 }

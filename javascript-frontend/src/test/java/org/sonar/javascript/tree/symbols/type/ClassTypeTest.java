@@ -85,4 +85,9 @@ public class ClassTypeTest extends TypeTest {
     assertThat(type.classType().classTree()).isNotNull();
 
   }
+
+  @Test
+  public void test_this_access() throws Exception {
+    assertThat(getSymbol("p").types().containsOnlyAndUnique(Type.Kind.NUMBER)).isTrue();
+  }
 }

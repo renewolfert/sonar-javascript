@@ -20,13 +20,17 @@
 package org.sonar.plugins.javascript.api.tree.expression;
 
 import com.google.common.annotations.Beta;
+import org.sonar.javascript.tree.symbols.type.TypableTree;
+import org.sonar.plugins.javascript.api.tree.lexical.SyntaxToken;
 
 /**
  * Common interface for all types of <a href="http://www.ecma-international.org/ecma-262/5.1/#sec-7.8">literals</a>.
  */
 @Beta
-public interface ThisTree extends ExpressionTree {
+public interface ThisTree extends ExpressionTree, TypableTree {
 
   String value();
+
+  SyntaxToken thisToken();
 
 }

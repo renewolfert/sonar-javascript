@@ -59,6 +59,14 @@ public class ObjectType implements Type {
     return new ObjectType(callability);
   }
 
+  @Nullable
+  public FunctionType findMethod(String name) {
+    if (classType != null) {
+      return classType.findMethod(name);
+    }
+    return null;
+  }
+
   @Override
   public String toString() {
     return this.kind().name();
