@@ -176,6 +176,15 @@ public class ControlFlowGraphTest {
   }
 
   @Test
+  public void for_loop() throws Exception {
+    ControlFlowGraph g = build("for(i=0; i<10; i++) { f1(); } ", 4);
+    assertBlock(g, 0).hasSuccessors(1);
+    assertBlock(g, 1).hasSuccessors(3, END);
+    assertBlock(g, 2).hasSuccessors(1);
+    assertBlock(g, 3).hasSuccessors(2);
+  }
+
+  @Test
   public void invalid_empty_block() throws Exception {
     MutableBlock block = MutableBlock.create();
     thrown.expect(IllegalArgumentException.class);

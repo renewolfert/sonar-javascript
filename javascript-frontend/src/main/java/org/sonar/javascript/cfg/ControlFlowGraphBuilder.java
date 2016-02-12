@@ -38,6 +38,7 @@ import org.sonar.plugins.javascript.api.tree.statement.BlockTree;
 import org.sonar.plugins.javascript.api.tree.statement.BreakStatementTree;
 import org.sonar.plugins.javascript.api.tree.statement.ContinueStatementTree;
 import org.sonar.plugins.javascript.api.tree.statement.DoWhileStatementTree;
+import org.sonar.plugins.javascript.api.tree.statement.ForStatementTree;
 import org.sonar.plugins.javascript.api.tree.statement.IfStatementTree;
 import org.sonar.plugins.javascript.api.tree.statement.LabelledStatementTree;
 import org.sonar.plugins.javascript.api.tree.statement.StatementTree;
@@ -105,6 +106,8 @@ class ControlFlowGraphBuilder {
       visitSimpleStatement(tree);
     } else if (tree.is(Kind.IF_STATEMENT)) {
       visitIfStatement((IfStatementTree) tree);
+    } else if (tree.is(Kind.FOR_STATEMENT)) {
+      visitForStatement((ForStatementTree) tree);
     } else if (tree.is(Kind.WHILE_STATEMENT)) {
       visitWhileStatement((WhileStatementTree) tree);
     } else if (tree.is(Kind.DO_WHILE_STATEMENT)) {
@@ -161,6 +164,25 @@ class ControlFlowGraphBuilder {
     MutableBlock elseBlock = currentBlock;
     MutableBlock thenBlock = buildSubFlow(tree.statement(), successor);
     currentBlock = createBlock(tree.condition(), thenBlock, elseBlock);
+  }
+
+  private void visitForStatement(ForStatementTree tree) {
+    MutableBlock conditionBlock = MutableBlock.create();
+    conditionBlock.addSuccessor(currentBlock);
+    conditionBlock.addElement(tree.condition());
+
+    MutableBlock updateBlock = MutableBlock.create();
+    updateBlock.addSuccessor(conditionBlock);
+    updateBlock.addElement(tree.update());
+
+    MutableBlock loopBodyBlock = buildSubFlow(tree.statement(), updateBlock);
+    conditionBlock.addSuccessor(loopBodyBlock);
+
+    // This has to be done at the end because blocks have to be in the correct order
+    blocks.add(updateBlock);
+    blocks.add(conditionBlock);
+
+    currentBlock = createBlock(tree.init(), conditionBlock);
   }
 
   private void visitWhileStatement(WhileStatementTree tree) {
