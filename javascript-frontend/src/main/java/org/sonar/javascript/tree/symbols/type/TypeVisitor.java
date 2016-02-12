@@ -47,7 +47,6 @@ import org.sonar.plugins.javascript.api.tree.expression.MemberExpressionTree;
 import org.sonar.plugins.javascript.api.tree.expression.NewExpressionTree;
 import org.sonar.plugins.javascript.api.tree.expression.ObjectLiteralTree;
 import org.sonar.plugins.javascript.api.tree.expression.ParenthesisedExpressionTree;
-import org.sonar.plugins.javascript.api.tree.expression.ThisTree;
 import org.sonar.plugins.javascript.api.tree.expression.UnaryExpressionTree;
 import org.sonar.plugins.javascript.api.tree.statement.ForInStatementTree;
 import org.sonar.plugins.javascript.api.tree.statement.ForOfStatementTree;
@@ -57,8 +56,6 @@ public class TypeVisitor extends DoubleDispatchVisitor {
 
   private JQuery jQueryHelper;
   private boolean forLoopVariable = false;
-
-  private ClassTree currentClass = null;
 
   public TypeVisitor(@Nullable Settings settings) {
     if (settings == null) {
@@ -128,18 +125,7 @@ public class TypeVisitor extends DoubleDispatchVisitor {
       }
     }
 
-    currentClass = tree;
-
     super.visitClass(tree);
-
-    currentClass = null;
-  }
-
-  @Override
-  public void visitThisTree(ThisTree tree) {
-    if (currentClass != null) {
-      addType(tree, ((ClassTreeImpl) currentClass).classType().createObject());
-    }
   }
 
   @Override
