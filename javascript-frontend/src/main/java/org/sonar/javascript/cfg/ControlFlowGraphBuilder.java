@@ -44,17 +44,17 @@ import org.sonar.plugins.javascript.api.tree.statement.WhileStatementTree;
 class ControlFlowGraphBuilder {
 
   private final List<MutableBlock> blocks = new LinkedList<>();
-  private final Set<MutableBlock> endPredecessors = new HashSet<>();
+  private final MutableBlock end = MutableBlock.createEnd();
   private MutableBlock currentBlock = createBlock();
   private final Deque<Loop> loops = new ArrayDeque<>();
 
   public ControlFlowGraph createGraph(ScriptTree tree) {
-    endPredecessors.add(currentBlock);
+    currentBlock.addSuccessor(end);
     if(tree.items() != null) {
       build(tree.items().items());
     }
     removeEmptyBlocks();
-    return new ControlFlowGraph(Lists.reverse(blocks), endPredecessors);
+    return new ControlFlowGraph(Lists.reverse(blocks), end);
   }
 
   private void removeEmptyBlocks() {
@@ -85,14 +85,10 @@ class ControlFlowGraphBuilder {
       for (MutableBlock emptySuccessor : Sets.intersection(emptyBlocks, block.successors())) {
         block.successors().remove(emptySuccessor);
         block.successors().addAll(replacements.get(emptySuccessor));
-        if (endPredecessors.contains(emptySuccessor)) {
-          endPredecessors.add(block);
-        }
       }
     }
 
     blocks.removeAll(emptyBlocks);
-    endPredecessors.removeAll(emptyBlocks);
   }
 
   private void build(List<? extends Tree> trees) {
@@ -126,7 +122,7 @@ class ControlFlowGraphBuilder {
   private void visitReturnStatement(Tree tree) {
     currentBlock.addElement(tree);
     currentBlock.successors().clear();
-    endPredecessors.add(currentBlock);
+    currentBlock.addSuccessor(end);
   }
 
   private void visitContinueStatement(ContinueStatementTree tree) {
@@ -152,7 +148,7 @@ class ControlFlowGraphBuilder {
   }
 
   private void visitWhileStatement(WhileStatementTree tree) {
-    MutableBlock conditionBlock = new MutableBlock();
+    MutableBlock conditionBlock = MutableBlock.create();
     conditionBlock.addSuccessor(currentBlock);
     conditionBlock.addElement(tree.condition());
 
@@ -193,7 +189,7 @@ class ControlFlowGraphBuilder {
   }
 
   private MutableBlock createBlock(MutableBlock... successors) {
-    MutableBlock block = new MutableBlock();
+    MutableBlock block = MutableBlock.create();
     blocks.add(block);
     for (MutableBlock successor : successors) {
       block.addSuccessor(successor);

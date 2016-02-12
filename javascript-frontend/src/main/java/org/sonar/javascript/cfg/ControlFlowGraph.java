@@ -38,7 +38,7 @@ public class ControlFlowGraph {
   private final ImmutableSetMultimap<ControlFlowNode, ControlFlowNode> predecessors;
   private final ImmutableSetMultimap<ControlFlowNode, ControlFlowNode> successors;
 
-  ControlFlowGraph(List<MutableBlock> blocks, Set<MutableBlock> endPredecessors) {
+  ControlFlowGraph(List<MutableBlock> blocks, MutableBlock end) {
 
     Map<MutableBlock, ControlFlowNode> immutableBlockByMutable = new HashMap<>();
     ImmutableList.Builder<ControlFlowBlock> blockListBuilder = ImmutableList.builder();
@@ -49,6 +49,7 @@ public class ControlFlowGraph {
       blockListBuilder.add(immutableBlock);
       index++;
     }
+    immutableBlockByMutable.put(end, this.end);
     
     ImmutableSetMultimap.Builder<ControlFlowNode, ControlFlowNode> successorBuilder = ImmutableSetMultimap.builder();
     ImmutableSetMultimap.Builder<ControlFlowNode, ControlFlowNode> predecessorBuilder = ImmutableSetMultimap.builder();
@@ -60,13 +61,7 @@ public class ControlFlowGraph {
       }
     }
     
-    for (MutableBlock endPredecessor : endPredecessors) {
-      ControlFlowNode immutableBlock = immutableBlockByMutable.get(endPredecessor);
-      successorBuilder.put(immutableBlock, end);
-      predecessorBuilder.put(end, immutableBlock);
-    }
-    
-    this.start = blocks.isEmpty() ? end : immutableBlockByMutable.get(blocks.get(0));
+    this.start = blocks.isEmpty() ? this.end : immutableBlockByMutable.get(blocks.get(0));
     this.blocks = blockListBuilder.build();
     this.predecessors = predecessorBuilder.build();
     this.successors = successorBuilder.build();

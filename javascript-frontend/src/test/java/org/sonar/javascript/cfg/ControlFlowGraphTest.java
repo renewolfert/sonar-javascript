@@ -21,7 +21,6 @@ package org.sonar.javascript.cfg;
 
 import com.google.common.base.Charsets;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableSet;
 import com.sonar.sslr.api.typed.ActionParser;
 import java.util.Set;
 import java.util.TreeSet;
@@ -163,10 +162,10 @@ public class ControlFlowGraphTest {
 
   @Test
   public void invalid_empty_block() throws Exception {
-    MutableBlock block = new MutableBlock();
+    MutableBlock block = MutableBlock.create();
     thrown.expect(IllegalArgumentException.class);
     thrown.expectMessage("Cannot build block 0");
-    new ControlFlowGraph(ImmutableList.of(block), ImmutableSet.of(block));
+    new ControlFlowGraph(ImmutableList.of(block), MutableBlock.createEnd());
   }
 
   private ControlFlowGraph build(String sourceCode, int expectedNumberOfBlocks) {

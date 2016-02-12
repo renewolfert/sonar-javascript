@@ -32,6 +32,18 @@ class MutableBlock {
   private final Set<MutableBlock> successors = new HashSet<>();
   private final List<Tree> elements = new ArrayList<>();
 
+  private MutableBlock() {
+    // private
+  }
+
+  public static MutableBlock create() {
+    return new MutableBlock();
+  }
+
+  public static MutableBlock createEnd() {
+    return new MutableEndBlock();
+  }
+
   public Set<MutableBlock> successors() {
     return successors;
   }
@@ -52,6 +64,20 @@ class MutableBlock {
 
   public boolean isEmpty() {
     return elements.isEmpty();
+  }
+
+  private static class MutableEndBlock extends MutableBlock {
+
+    @Override
+    public void addSuccessor(MutableBlock successor) {
+      throw new UnsupportedOperationException("Cannot add successor to end node");
+    }
+
+    @Override
+    public void addElement(Tree element) {
+      throw new UnsupportedOperationException("Cannot add element to end node");
+    }
+
   }
 
 }
