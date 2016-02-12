@@ -33,11 +33,13 @@ import java.util.Set;
 import org.sonar.plugins.javascript.api.tree.ScriptTree;
 import org.sonar.plugins.javascript.api.tree.Tree;
 import org.sonar.plugins.javascript.api.tree.Tree.Kind;
+import org.sonar.plugins.javascript.api.tree.expression.IdentifierTree;
 import org.sonar.plugins.javascript.api.tree.statement.BlockTree;
 import org.sonar.plugins.javascript.api.tree.statement.BreakStatementTree;
 import org.sonar.plugins.javascript.api.tree.statement.ContinueStatementTree;
 import org.sonar.plugins.javascript.api.tree.statement.DoWhileStatementTree;
 import org.sonar.plugins.javascript.api.tree.statement.IfStatementTree;
+import org.sonar.plugins.javascript.api.tree.statement.LabelledStatementTree;
 import org.sonar.plugins.javascript.api.tree.statement.StatementTree;
 import org.sonar.plugins.javascript.api.tree.statement.WhileStatementTree;
 
@@ -47,6 +49,7 @@ class ControlFlowGraphBuilder {
   private final MutableBlock end = MutableBlock.createEnd();
   private MutableBlock currentBlock = createBlock();
   private final Deque<Loop> loops = new ArrayDeque<>();
+  private String currentLabel = null;
 
   public ControlFlowGraph createGraph(ScriptTree tree) {
     currentBlock.addSuccessor(end);
@@ -114,6 +117,8 @@ class ControlFlowGraphBuilder {
       visitReturnStatement(tree);
     } else if (tree.is(Kind.BLOCK)) {
       build(((BlockTree) tree).statements());
+    } else if (tree.is(Kind.LABELLED_STATEMENT)) {
+      visitLabelledStatement((LabelledStatementTree) tree);
     } else {
       throw new IllegalArgumentException("Cannot build CFG for " + tree);
     }
@@ -128,13 +133,24 @@ class ControlFlowGraphBuilder {
   private void visitContinueStatement(ContinueStatementTree tree) {
     currentBlock.addElement(tree);
     currentBlock.successors().clear();
-    currentBlock.addSuccessor(loops.peek().continueTarget);
+    currentBlock.addSuccessor(getLoop(tree.label()).continueTarget);
+  }
+
+  private Loop getLoop(IdentifierTree label) {
+    if (label != null) {
+      for (Loop loop : loops) {
+        if (label.name().equals(loop.label)) {
+          return loop;
+        }
+      }
+    }
+    return loops.peek();
   }
 
   private void visitBreakStatement(BreakStatementTree tree) {
     currentBlock.addElement(tree);
     currentBlock.successors().clear();
-    currentBlock.addSuccessor(loops.peek().breakTarget);
+    currentBlock.addSuccessor(getLoop(tree.label()).breakTarget);
   }
 
   private void visitIfStatement(IfStatementTree tree) {
@@ -152,9 +168,9 @@ class ControlFlowGraphBuilder {
     conditionBlock.addSuccessor(currentBlock);
     conditionBlock.addElement(tree.condition());
 
-    loops.push(new Loop(conditionBlock, currentBlock));
+    pushLoop(conditionBlock, currentBlock);
     MutableBlock loopBodyBlock = buildSubFlow(tree.statement(), conditionBlock);
-    loops.pop();
+    popLoop();
 
     conditionBlock.addSuccessor(loopBodyBlock);
     currentBlock = conditionBlock;
@@ -165,11 +181,25 @@ class ControlFlowGraphBuilder {
 
   private void visitDoWhileStatement(DoWhileStatementTree tree) {
     MutableBlock conditionBlock = createBlock(tree.condition(), currentBlock);
-    loops.push(new Loop(conditionBlock, currentBlock));
+    pushLoop(conditionBlock, currentBlock);
     MutableBlock loopBodyBlock = buildSubFlow(tree.statement(), conditionBlock);
-    loops.pop();
+    popLoop();
     conditionBlock.addSuccessor(loopBodyBlock);
     currentBlock = createBlock(loopBodyBlock);
+  }
+
+  private void visitLabelledStatement(LabelledStatementTree tree) {
+    currentLabel = tree.label().name();
+    build(tree.statement());
+  }
+
+  private void pushLoop(MutableBlock continueTarget, MutableBlock breakTarget) {
+    loops.push(new Loop(continueTarget, breakTarget, currentLabel));
+    currentLabel = null;
+  }
+
+  private void popLoop() {
+    loops.pop();
   }
 
   private MutableBlock buildSubFlow(StatementTree subFlowTree, MutableBlock successor) {
@@ -201,10 +231,12 @@ class ControlFlowGraphBuilder {
 
     final MutableBlock continueTarget;
     final MutableBlock breakTarget;
+    final String label;
 
-    public Loop(MutableBlock continueTarget, MutableBlock breakTarget) {
+    public Loop(MutableBlock continueTarget, MutableBlock breakTarget, String label) {
       this.continueTarget = continueTarget;
       this.breakTarget = breakTarget;
+      this.label = label;
     }
 
   }

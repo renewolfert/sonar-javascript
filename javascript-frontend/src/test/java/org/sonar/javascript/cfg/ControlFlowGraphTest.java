@@ -161,6 +161,21 @@ public class ControlFlowGraphTest {
   }
 
   @Test
+  public void break_with_label() throws Exception {
+    ControlFlowGraph g = build("outer: while (b0) { inner: while (b1) { b2(); break outer; } b3(); }", 4);
+    assertBlock(g, 0).hasSuccessors(1, END);
+    assertBlock(g, 1).hasSuccessors(2, 3);
+    assertBlock(g, 2).hasSuccessors(END);
+    assertBlock(g, 3).hasSuccessors(0);
+
+    g = build("outer: while (b0) { inner: while (b1) { b2(); break xxx; } b3(); }", 4);
+    assertBlock(g, 0).hasSuccessors(1, END);
+    assertBlock(g, 1).hasSuccessors(2, 3);
+    assertBlock(g, 2).hasSuccessors(3);
+    assertBlock(g, 3).hasSuccessors(0);
+  }
+
+  @Test
   public void invalid_empty_block() throws Exception {
     MutableBlock block = MutableBlock.create();
     thrown.expect(IllegalArgumentException.class);
