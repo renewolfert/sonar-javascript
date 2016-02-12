@@ -20,37 +20,37 @@
 package org.sonar.javascript.cfg;
 
 import com.google.common.base.Preconditions;
-import com.google.common.collect.Lists;
-import java.util.ArrayList;
-import java.util.List;
+import com.google.common.collect.ImmutableSet;
 import java.util.Map;
 import java.util.Set;
 import org.sonar.plugins.javascript.api.tree.Tree;
 
-abstract class MutableBlock {
-  
-  private final List<Tree> elements = new ArrayList<>();
+class BranchingBlock extends MutableBlock {
 
-  public abstract Set<MutableBlock> successors();
-  
-  public abstract void replaceSuccessors(Map<MutableBlock, MutableBlock> replacements);
+  private MutableBlock successor1;
+  private MutableBlock successor2;
 
-  public List<Tree> elements() {
-    return Lists.reverse(elements);
+  public BranchingBlock(Tree element) {
+    addElement(element);
   }
 
-  public void addElement(Tree element) {
-    Preconditions.checkArgument(element != null, "Cannot add a null element to a block");
-    elements.add(element);
+  @Override
+  public Set<MutableBlock> successors() {
+    Preconditions.checkState(successor1 != null, "Successors were not set on " + this);
+    return ImmutableSet.of(successor1, successor2);
   }
 
-  public boolean isEmpty() {
-    return elements.isEmpty();
+  public void setSuccessors(MutableBlock successor1, MutableBlock successor2) {
+    Preconditions.checkArgument(successor1 != null && successor2 != null, "Successor cannot be null");
+    Preconditions.checkArgument(successor1 != this && successor2 != this, "Cannot add itself as successor");
+    this.successor1 = successor1;
+    this.successor2 = successor2;
   }
 
-  static MutableBlock replacement(MutableBlock successor, Map<MutableBlock, MutableBlock> replacements) {
-    MutableBlock newSuccessor = replacements.get(successor);
-    return newSuccessor == null ? successor : newSuccessor;
+  @Override
+  public void replaceSuccessors(Map<MutableBlock, MutableBlock> replacements) {
+    this.successor1 = replacement(this.successor1, replacements);
+    this.successor2 = replacement(this.successor2, replacements);
   }
 
 }

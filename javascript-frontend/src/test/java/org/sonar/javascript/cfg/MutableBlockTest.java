@@ -32,35 +32,77 @@ public class MutableBlockTest {
   @Rule
   public ExpectedException thrown = ExpectedException.none();
 
-  private static final MutableBlock BLOCK1 = MutableBlock.create();
-  private static final MutableBlock BLOCK2 = MutableBlock.create();
-  private static final MutableBlock END = MutableBlock.createEnd();
+  private static final Tree TREE1 = mock(Tree.class);
+  private static final EndBlock END = new EndBlock();
+  private static final SimpleBlock SIMPLE1 = new SimpleBlock(END);
+  private static final SimpleBlock SIMPLE2 = new SimpleBlock(END);
+  private static final BranchingBlock BRANCHING1 = new BranchingBlock(TREE1);
 
-  @Test
-  public void add_successor() throws Exception {
-    assertThat(BLOCK1.successors()).isEmpty();
-    BLOCK1.addSuccessor(BLOCK2);
-    assertThat(BLOCK1.successors()).containsOnly(BLOCK2);
+  @Test(expected = IllegalStateException.class)
+  public void unset_branch_successors() throws Exception {
+    BRANCHING1.successors();
   }
 
-  @Test(expected = NullPointerException.class)
-  public void cannot_add_null_as_successor() throws Exception {
-    BLOCK1.addSuccessor(null);
+  @Test
+  public void branch_successors() throws Exception {
+    BRANCHING1.setSuccessors(SIMPLE1, SIMPLE2);
+    assertThat(BRANCHING1.successors()).containsOnly(SIMPLE1, SIMPLE2);
   }
 
   @Test(expected = IllegalArgumentException.class)
-  public void cannot_add_itself_as_successor() throws Exception {
-    BLOCK1.addSuccessor(BLOCK1);
+  public void cannot_add_itself_as_successor1() throws Exception {
+    BRANCHING1.setSuccessors(BRANCHING1, SIMPLE1);
   }
 
-  @Test(expected = UnsupportedOperationException.class)
-  public void cannot_add_successor_to_end() throws Exception {
-    END.addSuccessor(BLOCK1);
+  @Test(expected = IllegalArgumentException.class)
+  public void cannot_add_itself_as_successor2() throws Exception {
+    BRANCHING1.setSuccessors(SIMPLE1, BRANCHING1);
+  }
+
+  @Test(expected = IllegalArgumentException.class)
+  public void cannot_set_null_successor1() throws Exception {
+    BRANCHING1.setSuccessors(SIMPLE1, null);
+  }
+
+  @Test(expected = IllegalArgumentException.class)
+  public void cannot_set_null_successor2() throws Exception {
+    BRANCHING1.setSuccessors(null, SIMPLE1);
+  }
+
+  @Test
+  public void simple_successor() throws Exception {
+    assertThat(new SimpleBlock(SIMPLE1).successors()).containsOnly(SIMPLE1);
+  }
+
+  @Test(expected = IllegalArgumentException.class)
+  public void cannot_add_null_as_successor() throws Exception {
+    new SimpleBlock(null);
+  }
+
+  @Test
+  public void non_empty_successor() throws Exception {
+    SimpleBlock simpleNonEmpty = new SimpleBlock(END);
+    simpleNonEmpty.addElement(TREE1);
+    assertThat(simpleNonEmpty.firstNonEmptySuccessor()).isEqualTo(simpleNonEmpty);
+    assertThat(new SimpleBlock(simpleNonEmpty).firstNonEmptySuccessor()).isEqualTo(simpleNonEmpty);
+    assertThat(new SimpleBlock(BRANCHING1).firstNonEmptySuccessor()).isEqualTo(BRANCHING1);
+    assertThat(new SimpleBlock(END).firstNonEmptySuccessor()).isEqualTo(END);
+    assertThat(new SimpleBlock(new SimpleBlock(END)).firstNonEmptySuccessor()).isEqualTo(END);
+  }
+
+  @Test
+  public void end_has_no_successor() throws Exception {
+    assertThat(END.successors()).isEmpty();
   }
 
   @Test(expected = UnsupportedOperationException.class)
   public void cannot_add_element_to_end() throws Exception {
-    END.addElement(mock(Tree.class));
+    END.addElement(TREE1);
+  }
+
+  @Test(expected = IllegalArgumentException.class)
+  public void cannot_add_null_element() throws Exception {
+    SIMPLE1.addElement(null);
   }
 
 }

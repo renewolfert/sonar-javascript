@@ -20,37 +20,35 @@
 package org.sonar.javascript.cfg;
 
 import com.google.common.base.Preconditions;
-import com.google.common.collect.Lists;
-import java.util.ArrayList;
-import java.util.List;
+import com.google.common.collect.ImmutableSet;
 import java.util.Map;
 import java.util.Set;
-import org.sonar.plugins.javascript.api.tree.Tree;
 
-abstract class MutableBlock {
-  
-  private final List<Tree> elements = new ArrayList<>();
+class SimpleBlock extends MutableBlock {
 
-  public abstract Set<MutableBlock> successors();
-  
-  public abstract void replaceSuccessors(Map<MutableBlock, MutableBlock> replacements);
+  private MutableBlock successor;
 
-  public List<Tree> elements() {
-    return Lists.reverse(elements);
+  public SimpleBlock(MutableBlock successor) {
+    Preconditions.checkArgument(successor != null, "Successor cannot be null");
+    this.successor = successor;
   }
 
-  public void addElement(Tree element) {
-    Preconditions.checkArgument(element != null, "Cannot add a null element to a block");
-    elements.add(element);
+  @Override
+  public Set<MutableBlock> successors() {
+    return ImmutableSet.of(successor);
   }
 
-  public boolean isEmpty() {
-    return elements.isEmpty();
+  public MutableBlock firstNonEmptySuccessor() {
+    MutableBlock block = this;
+    while (block instanceof SimpleBlock && block.isEmpty()) {
+      block = ((SimpleBlock) block).successor;
+    }
+    return block;
   }
 
-  static MutableBlock replacement(MutableBlock successor, Map<MutableBlock, MutableBlock> replacements) {
-    MutableBlock newSuccessor = replacements.get(successor);
-    return newSuccessor == null ? successor : newSuccessor;
+  @Override
+  public void replaceSuccessors(Map<MutableBlock, MutableBlock> replacements) {
+    this.successor = replacement(this.successor, replacements);
   }
 
 }

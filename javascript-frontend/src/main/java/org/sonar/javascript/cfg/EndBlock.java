@@ -19,38 +19,26 @@
  */
 package org.sonar.javascript.cfg;
 
-import com.google.common.base.Preconditions;
-import com.google.common.collect.Lists;
-import java.util.ArrayList;
-import java.util.List;
+import com.google.common.collect.ImmutableSet;
 import java.util.Map;
 import java.util.Set;
 import org.sonar.plugins.javascript.api.tree.Tree;
 
-abstract class MutableBlock {
-  
-  private final List<Tree> elements = new ArrayList<>();
+class EndBlock extends MutableBlock {
 
-  public abstract Set<MutableBlock> successors();
-  
-  public abstract void replaceSuccessors(Map<MutableBlock, MutableBlock> replacements);
-
-  public List<Tree> elements() {
-    return Lists.reverse(elements);
-  }
-
+  @Override
   public void addElement(Tree element) {
-    Preconditions.checkArgument(element != null, "Cannot add a null element to a block");
-    elements.add(element);
+    throw new UnsupportedOperationException("Cannot add element to end node");
   }
 
-  public boolean isEmpty() {
-    return elements.isEmpty();
+  @Override
+  public Set<MutableBlock> successors() {
+    return ImmutableSet.of();
   }
 
-  static MutableBlock replacement(MutableBlock successor, Map<MutableBlock, MutableBlock> replacements) {
-    MutableBlock newSuccessor = replacements.get(successor);
-    return newSuccessor == null ? successor : newSuccessor;
+  @Override
+  public void replaceSuccessors(Map<MutableBlock, MutableBlock> replacements) {
+    // Nothing to replace
   }
 
 }

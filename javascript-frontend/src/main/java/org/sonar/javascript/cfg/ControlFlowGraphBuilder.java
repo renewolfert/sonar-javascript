@@ -19,23 +19,15 @@
  */
 package org.sonar.javascript.cfg;
 
-import com.google.common.base.Preconditions;
-import com.google.common.collect.HashMultimap;
+import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
-import com.google.common.collect.Ordering;
-import com.google.common.collect.SetMultimap;
-import com.google.common.collect.Sets;
-import com.google.common.primitives.Ints;
 import java.util.ArrayDeque;
-import java.util.Comparator;
 import java.util.Deque;
+import java.util.HashMap;
 import java.util.HashSet;
-import java.util.LinkedList;
 import java.util.List;
-import java.util.Queue;
+import java.util.Map;
 import java.util.Set;
-import org.sonar.javascript.tree.impl.JavaScriptTree;
-import org.sonar.javascript.tree.impl.lexical.InternalSyntaxToken;
 import org.sonar.plugins.javascript.api.tree.ScriptTree;
 import org.sonar.plugins.javascript.api.tree.Tree;
 import org.sonar.plugins.javascript.api.tree.Tree.Kind;
@@ -53,55 +45,39 @@ import org.sonar.plugins.javascript.api.tree.statement.WhileStatementTree;
 
 class ControlFlowGraphBuilder {
 
-  private static final Ordering<MutableBlock> BLOCK_ORDERING = Ordering.from(new MutableBlockTokenIndexComparator());
-
-  private final List<MutableBlock> blocks = new LinkedList<>();
-  private final MutableBlock end = MutableBlock.createEnd();
-  private MutableBlock currentBlock = createBlock();
+  private final Set<MutableBlock> blocks = new HashSet<>();
+  private final EndBlock end = new EndBlock();
+  private MutableBlock currentBlock = createSimpleBlock(end);
+  private MutableBlock start;
   private final Deque<Loop> loops = new ArrayDeque<>();
   private String currentLabel = null;
 
   public ControlFlowGraph createGraph(ScriptTree tree) {
-    currentBlock.addSuccessor(end);
     if(tree.items() != null) {
       build(tree.items().items());
     }
+    start = currentBlock;
     removeEmptyBlocks();
-    return new ControlFlowGraph(sortedBlocks(), end);
+    return new ControlFlowGraph(blocks, start, end);
   }
 
   private void removeEmptyBlocks() {
-    Set<MutableBlock> emptyBlocks = new HashSet<>();
-    SetMultimap<MutableBlock, MutableBlock> replacements = HashMultimap.create();
-    for (MutableBlock block : blocks) {
+    Map<MutableBlock, MutableBlock> emptyBlockReplacements = new HashMap<>();
+    for (SimpleBlock block : Iterables.filter(blocks, SimpleBlock.class)) {
       if (block.isEmpty()) {
-        emptyBlocks.add(block);
-        replacements.putAll(block, block.successors());
+        emptyBlockReplacements.put(block, block.firstNonEmptySuccessor());
       }
     }
 
-    Queue<MutableBlock> queue = new ArrayDeque<>(replacements.keySet());
-    while (!queue.isEmpty()) {
-      MutableBlock block = queue.remove();
-      Set<MutableBlock> blockReplacements = replacements.get(block);
-      Set<MutableBlock> emptyBlockReplacements = Sets.intersection(blockReplacements, emptyBlocks);
-      blockReplacements.removeAll(emptyBlockReplacements);
-      for (MutableBlock emptyBlock : emptyBlockReplacements) {
-        blockReplacements.addAll(replacements.get(emptyBlock));
-      }
-      if (!Sets.intersection(blockReplacements, emptyBlocks).isEmpty()) {
-        queue.add(block);
-      }
-    }
+    blocks.removeAll(emptyBlockReplacements.keySet());
 
     for (MutableBlock block : blocks) {
-      for (MutableBlock emptySuccessor : Sets.intersection(emptyBlocks, block.successors())) {
-        block.successors().remove(emptySuccessor);
-        block.successors().addAll(replacements.get(emptySuccessor));
-      }
+      block.replaceSuccessors(emptyBlockReplacements);
     }
 
-    blocks.removeAll(emptyBlocks);
+    if (emptyBlockReplacements.containsKey(start)) {
+      start = emptyBlockReplacements.get(start);
+    }
   }
 
   private void build(List<? extends Tree> trees) {
@@ -139,15 +115,11 @@ class ControlFlowGraphBuilder {
   }
 
   private void visitReturnStatement(Tree tree) {
-    currentBlock.addElement(tree);
-    currentBlock.successors().clear();
-    currentBlock.addSuccessor(end);
+    currentBlock = createSimpleBlock(tree, end);
   }
 
   private void visitContinueStatement(ContinueStatementTree tree) {
-    currentBlock.addElement(tree);
-    currentBlock.successors().clear();
-    currentBlock.addSuccessor(getLoop(tree.label()).continueTarget);
+    currentBlock = createSimpleBlock(tree, getLoop(tree.label()).continueTarget);
   }
 
   private Loop getLoop(IdentifierTree label) {
@@ -162,9 +134,7 @@ class ControlFlowGraphBuilder {
   }
 
   private void visitBreakStatement(BreakStatementTree tree) {
-    currentBlock.addElement(tree);
-    currentBlock.successors().clear();
-    currentBlock.addSuccessor(getLoop(tree.label()).breakTarget);
+    currentBlock = createSimpleBlock(tree, getLoop(tree.label()).breakTarget);
   }
 
   private void visitIfStatement(IfStatementTree tree) {
@@ -174,47 +144,56 @@ class ControlFlowGraphBuilder {
     }
     MutableBlock elseBlock = currentBlock;
     MutableBlock thenBlock = buildSubFlow(tree.statement(), successor);
-    currentBlock = createBlock(tree.condition(), thenBlock, elseBlock);
+    BranchingBlock branchingBlock = createBranchingBlock(tree.condition());
+    branchingBlock.setSuccessors(thenBlock, elseBlock);
+    currentBlock = branchingBlock;
   }
 
   private void visitForStatement(ForStatementTree tree) {
-    MutableBlock conditionBlock = createBlock(tree.condition(), currentBlock);
-    MutableBlock updateBlock = createBlock(tree.update(), conditionBlock);
+    MutableBlock successor = currentBlock;
+    BranchingBlock conditionBlock = createBranchingBlock(tree.condition());
+    SimpleBlock updateBlock = createSimpleBlock(tree.update(), conditionBlock);
 
     pushLoop(updateBlock, currentBlock);
     MutableBlock loopBodyBlock = buildSubFlow(tree.statement(), updateBlock);
     popLoop();
 
-    conditionBlock.addSuccessor(loopBodyBlock);
-    currentBlock = createBlock(tree.init(), conditionBlock);
+    conditionBlock.setSuccessors(loopBodyBlock, successor);
+    currentBlock = createSimpleBlock(tree.init(), conditionBlock);
   }
 
   private void visitForInStatement(ForInStatementTree tree) {
-    MutableBlock assignmentBlock = createBlock(tree.expression(), currentBlock);
-    MutableBlock expressionBlock = createBlock(tree.expression(), assignmentBlock);
+    MutableBlock successor = currentBlock;
+    BranchingBlock assignmentBlock = createBranchingBlock(tree.variableOrExpression());
+
+    pushLoop(assignmentBlock, currentBlock);
     MutableBlock loopBodyBlock = buildSubFlow(tree.statement(), assignmentBlock);
-    assignmentBlock.addSuccessor(loopBodyBlock);
-    currentBlock = createBlock(expressionBlock);
+    popLoop();
+
+    assignmentBlock.setSuccessors(loopBodyBlock, successor);
+    currentBlock = createSimpleBlock(tree.expression(), assignmentBlock);
   }
 
   private void visitWhileStatement(WhileStatementTree tree) {
-    MutableBlock conditionBlock = createBlock(tree.condition(), currentBlock);
+    MutableBlock successor = currentBlock;
+    BranchingBlock conditionBlock = createBranchingBlock(tree.condition());
 
     pushLoop(conditionBlock, currentBlock);
     MutableBlock loopBodyBlock = buildSubFlow(tree.statement(), conditionBlock);
     popLoop();
 
-    conditionBlock.addSuccessor(loopBodyBlock);
+    conditionBlock.setSuccessors(loopBodyBlock, successor);
     currentBlock = conditionBlock;
   }
 
   private void visitDoWhileStatement(DoWhileStatementTree tree) {
-    MutableBlock conditionBlock = createBlock(tree.condition(), currentBlock);
+    MutableBlock successor = currentBlock;
+    BranchingBlock conditionBlock = createBranchingBlock(tree.condition());
     pushLoop(conditionBlock, currentBlock);
     MutableBlock loopBodyBlock = buildSubFlow(tree.statement(), conditionBlock);
     popLoop();
-    conditionBlock.addSuccessor(loopBodyBlock);
-    currentBlock = createBlock(loopBodyBlock);
+    conditionBlock.setSuccessors(loopBodyBlock, successor);
+    currentBlock = createSimpleBlock(loopBodyBlock);
   }
 
   private void visitLabelledStatement(LabelledStatementTree tree) {
@@ -232,7 +211,7 @@ class ControlFlowGraphBuilder {
   }
 
   private MutableBlock buildSubFlow(StatementTree subFlowTree, MutableBlock successor) {
-    currentBlock = createBlock(successor);
+    currentBlock = createSimpleBlock(successor);
     build(subFlowTree);
     return currentBlock;
   }
@@ -241,40 +220,22 @@ class ControlFlowGraphBuilder {
     currentBlock.addElement(tree);
   }
   
-  private MutableBlock createBlock(Tree element, MutableBlock... successors) {
-    MutableBlock block = createBlock(successors);
+  private BranchingBlock createBranchingBlock(Tree element) {
+    BranchingBlock block = new BranchingBlock(element);
+    blocks.add(block);
+    return block;
+  }
+
+  private SimpleBlock createSimpleBlock(Tree element, MutableBlock successor) {
+    SimpleBlock block = createSimpleBlock(successor);
     block.addElement(element);
     return block;
   }
 
-  private MutableBlock createBlock(MutableBlock... successors) {
-    MutableBlock block = MutableBlock.create();
+  private SimpleBlock createSimpleBlock(MutableBlock successor) {
+    SimpleBlock block = new SimpleBlock(successor);
     blocks.add(block);
-    for (MutableBlock successor : successors) {
-      block.addSuccessor(successor);
-    }
     return block;
-  }
-
-  private List<MutableBlock> sortedBlocks() {
-    return BLOCK_ORDERING.sortedCopy(blocks);
-  }
-
-  private static class MutableBlockTokenIndexComparator implements Comparator<MutableBlock> {
-
-    @Override
-    public int compare(MutableBlock b1, MutableBlock b2) {
-
-      return Ints.compare(tokenIndex(b1), tokenIndex(b2));
-    }
-
-    private static int tokenIndex(MutableBlock block) {
-      Preconditions.checkArgument(!block.isEmpty(), "Cannot sort empty block");
-      JavaScriptTree tree = (JavaScriptTree) block.elements().get(0);
-      InternalSyntaxToken token = (InternalSyntaxToken) tree.getFirstToken();
-      return token.startIndex();
-    }
-
   }
 
   private static class Loop {

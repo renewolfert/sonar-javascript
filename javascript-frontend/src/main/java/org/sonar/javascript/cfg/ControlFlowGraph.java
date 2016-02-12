@@ -20,7 +20,6 @@
 package org.sonar.javascript.cfg;
 
 import com.google.common.base.Preconditions;
-import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSetMultimap;
 import java.util.HashMap;
@@ -34,19 +33,19 @@ public class ControlFlowGraph {
 
   private final ControlFlowNode start;
   private final ControlFlowNode end = new EndNode();
-  private final List<ControlFlowBlock> blocks;
+  private final ImmutableSet<ControlFlowBlock> blocks;
   private final ImmutableSetMultimap<ControlFlowNode, ControlFlowNode> predecessors;
   private final ImmutableSetMultimap<ControlFlowNode, ControlFlowNode> successors;
 
-  ControlFlowGraph(List<MutableBlock> blocks, MutableBlock end) {
+  ControlFlowGraph(Set<MutableBlock> blocks, MutableBlock start, MutableBlock end) {
 
     Map<MutableBlock, ControlFlowNode> immutableBlockByMutable = new HashMap<>();
-    ImmutableList.Builder<ControlFlowBlock> blockListBuilder = ImmutableList.builder();
+    ImmutableSet.Builder<ControlFlowBlock> immutableBlockSetBuilder = ImmutableSet.builder();
     int index = 0;
     for (MutableBlock mutableBlock : blocks) {
       ImmutableBlock immutableBlock = new ImmutableBlock(index, mutableBlock.elements());
       immutableBlockByMutable.put(mutableBlock, immutableBlock);
-      blockListBuilder.add(immutableBlock);
+      immutableBlockSetBuilder.add(immutableBlock);
       index++;
     }
     immutableBlockByMutable.put(end, this.end);
@@ -56,13 +55,14 @@ public class ControlFlowGraph {
     for (MutableBlock mutableBlock : blocks) {
       ControlFlowNode immutableBlock = immutableBlockByMutable.get(mutableBlock);
       for (MutableBlock mutableBlockSuccessor : mutableBlock.successors()) {
-        predecessorBuilder.put(immutableBlockByMutable.get(mutableBlockSuccessor), immutableBlock);
-        successorBuilder.put(immutableBlock, immutableBlockByMutable.get(mutableBlockSuccessor));
+        ControlFlowNode immutableBlockSuccessor = immutableBlockByMutable.get(mutableBlockSuccessor);
+        predecessorBuilder.put(immutableBlockSuccessor, immutableBlock);
+        successorBuilder.put(immutableBlock, immutableBlockSuccessor);
       }
     }
     
-    this.start = blocks.isEmpty() ? this.end : immutableBlockByMutable.get(blocks.get(0));
-    this.blocks = blockListBuilder.build();
+    this.start = blocks.isEmpty() ? this.end : immutableBlockByMutable.get(start);
+    this.blocks = immutableBlockSetBuilder.build();
     this.predecessors = predecessorBuilder.build();
     this.successors = successorBuilder.build();
   }
@@ -79,12 +79,8 @@ public class ControlFlowGraph {
     return end;
   }
 
-  public List<ControlFlowBlock> blocks() {
+  public Set<ControlFlowBlock> blocks() {
     return blocks;
-  }
-
-  public ControlFlowBlock block(int blockIndex) {
-    return blocks().get(blockIndex);
   }
 
   private class ImmutableBlock implements ControlFlowBlock {
