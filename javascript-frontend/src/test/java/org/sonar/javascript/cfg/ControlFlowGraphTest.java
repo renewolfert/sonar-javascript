@@ -23,8 +23,8 @@ import com.google.common.base.Charsets;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.sonar.sslr.api.typed.ActionParser;
-import org.fest.assertions.Assertions;
-import org.fest.assertions.GenericAssert;
+import java.util.Set;
+import java.util.TreeSet;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.ExpectedException;
@@ -35,9 +35,10 @@ import org.sonar.plugins.javascript.api.tree.Tree.Kind;
 import org.sonar.plugins.javascript.api.tree.statement.ExpressionStatementTree;
 
 import static org.fest.assertions.Assertions.assertThat;
-import static org.sonar.javascript.cfg.ControlFlowGraphTest.ControlFlowNodeAssert.assertNode;
 
 public class ControlFlowGraphTest {
+
+  private static final int END = -1;
 
   @Rule
   public ExpectedException thrown = ExpectedException.none();
@@ -47,24 +48,21 @@ public class ControlFlowGraphTest {
   @Test
   public void no_block() throws Exception {
     ControlFlowGraph g = build("", 0);
-    assertNode(g.start())
-      .isEqualTo(g.end())
-      .hasNoPredecessor();
+    assertThat(g.start()).isEqualTo(g.end());
   }
 
   @Test
   public void single_basic_block() throws Exception {
     ControlFlowGraph g = build("foo();", 1);
-    assertNode(g.start())
-      .isEqualTo(g.block(0))
-      .hasNoPredecessor()
-      .hasSuccessors(g.end());
+    assertThat(g.start()).isEqualTo(g.block(0));
+    assertThat(g.start().predecessors()).isEmpty();
+    assertBlock(g, 0).hasSuccessors(END);
   }
 
   @Test
   public void simple_statements() throws Exception {
     ControlFlowGraph g = build("foo(); var a; a = 2;", 1);
-    assertNode(g.block(0)).hasSuccessors(g.end());
+    assertBlock(g, 0).hasSuccessors(END);
     assertThat(g.block(0).elements()).hasSize(3);
     ExpressionStatementTree firstElement = (ExpressionStatementTree) (g.block(0).elements().get(0));
     assertThat(firstElement.expression().is(Kind.CALL_EXPRESSION)).isTrue();
@@ -73,94 +71,94 @@ public class ControlFlowGraphTest {
   @Test
   public void if_then() throws Exception {
     ControlFlowGraph g = build("if (a) { foo(); }", 2);
-    assertNode(g.block(0)).hasSuccessors(g.end(), g.block(1));
-    assertNode(g.block(1)).hasSuccessors(g.end());
+    assertBlock(g, 0).hasSuccessors(1, END);
+    assertBlock(g, 1).hasSuccessors(END);
   }
 
   @Test
   public void if_then_else() throws Exception {
     ControlFlowGraph g = build("if (a) { f1(); } else { f2(); }", 3);
-    assertNode(g.block(0)).hasSuccessors(g.block(1), g.block(2));
-    assertNode(g.block(1)).hasSuccessors(g.end());
-    assertNode(g.block(2)).hasSuccessors(g.end());
+    assertBlock(g, 0).hasSuccessors(1, 2);
+    assertBlock(g, 1).hasSuccessors(END);
+    assertBlock(g, 2).hasSuccessors(END);
   }
 
   @Test
   public void nested_if() throws Exception {
     ControlFlowGraph g = build("if (a) { if (b) { f1(); } f2(); } f3();", 5);
-    assertNode(g.block(0)).hasSuccessors(g.block(1), g.block(4));
-    assertNode(g.block(1)).hasSuccessors(g.block(2), g.block(3));
-    assertNode(g.block(2)).hasSuccessors(g.block(3));
-    assertNode(g.block(3)).hasSuccessors(g.block(4));
-    assertNode(g.block(4)).hasSuccessors(g.end());
+    assertBlock(g, 0).hasSuccessors(1, 4);
+    assertBlock(g, 1).hasSuccessors(2, 3);
+    assertBlock(g, 2).hasSuccessors(3);
+    assertBlock(g, 3).hasSuccessors(4);
+    assertBlock(g, 4).hasSuccessors(END);
   }
 
   @Test
   public void return_statement() throws Exception {
     ControlFlowGraph g = build("if (a) { return; } f1();", 3);
-    assertNode(g.block(0)).hasSuccessors(g.block(1), g.block(2));
-    assertNode(g.block(1)).hasSuccessors(g.end());
-    assertNode(g.block(2)).hasSuccessors(g.end());
+    assertBlock(g, 0).hasSuccessors(1, 2);
+    assertBlock(g, 1).hasSuccessors(END);
+    assertBlock(g, 2).hasSuccessors(END);
 
     g = build("if (a) { f1() } else { return; } f2();", 4);
-    assertNode(g.block(0)).hasSuccessors(g.block(1), g.block(2));
-    assertNode(g.block(1)).hasSuccessors(g.block(3));
-    assertNode(g.block(2)).hasSuccessors(g.end());
-    assertNode(g.block(3)).hasSuccessors(g.end());
+    assertBlock(g, 0).hasSuccessors(1, 2);
+    assertBlock(g, 1).hasSuccessors(3);
+    assertBlock(g, 2).hasSuccessors(END);
+    assertBlock(g, 3).hasSuccessors(END);
   }
 
   @Test
   public void while_loop() throws Exception {
     ControlFlowGraph g = build("while (a) { f1(); }", 2);
-    assertNode(g.block(0)).hasSuccessors(g.block(1), g.end());
-    assertNode(g.block(1)).hasSuccessors(g.block(0));
+    assertBlock(g, 0).hasSuccessors(1, END);
+    assertBlock(g, 1).hasSuccessors(0);
   }
 
   @Test
   public void do_while_loop() throws Exception {
     ControlFlowGraph g = build("f1(); do { f2(); } while(a); f3();", 4);
-    assertNode(g.block(0)).hasSuccessors(g.block(1));
-    assertNode(g.block(1)).hasSuccessors(g.block(2));
-    assertNode(g.block(2)).hasSuccessors(g.block(1), g.block(3));
-    assertNode(g.block(3)).hasSuccessors(g.end());
+    assertBlock(g, 0).hasSuccessors(1);
+    assertBlock(g, 1).hasSuccessors(2);
+    assertBlock(g, 2).hasSuccessors(1, 3);
+    assertBlock(g, 3).hasSuccessors(END);
   }
 
   @Test
   public void continue_in_while() throws Exception {
     ControlFlowGraph g = build("while (a) { if (b) { continue; } f1(); } f2();", 5);
-    assertNode(g.block(0)).hasSuccessors(g.block(1), g.block(4));
-    assertNode(g.block(1)).hasSuccessors(g.block(2), g.block(3));
-    assertNode(g.block(2)).hasSuccessors(g.block(0));
-    assertNode(g.block(3)).hasSuccessors(g.block(0));
-    assertNode(g.block(4)).hasSuccessors(g.end());
+    assertBlock(g, 0).hasSuccessors(1, 4);
+    assertBlock(g, 1).hasSuccessors(2, 3);
+    assertBlock(g, 2).hasSuccessors(0);
+    assertBlock(g, 3).hasSuccessors(0);
+    assertBlock(g, 4).hasSuccessors(END);
   }
 
   @Test
   public void break_in_while() throws Exception {
     ControlFlowGraph g = build("while (a) { if (b) { break; } f1(); } f2();", 5);
-    assertNode(g.block(0)).hasSuccessors(g.block(1), g.block(4));
-    assertNode(g.block(1)).hasSuccessors(g.block(2), g.block(3));
-    assertNode(g.block(2)).hasSuccessors(g.block(4));
-    assertNode(g.block(3)).hasSuccessors(g.block(0));
-    assertNode(g.block(4)).hasSuccessors(g.end());
+    assertBlock(g, 0).hasSuccessors(1, 4);
+    assertBlock(g, 1).hasSuccessors(2, 3);
+    assertBlock(g, 2).hasSuccessors(4);
+    assertBlock(g, 3).hasSuccessors(0);
+    assertBlock(g, 4).hasSuccessors(END);
   }
 
   @Test
   public void continue_in_do_while() throws Exception {
     ControlFlowGraph g = build("do { if (a) { continue; } f1(); } while(a);", 4);
-    assertNode(g.block(0)).hasSuccessors(g.block(1), g.block(2));
-    assertNode(g.block(1)).hasSuccessors(g.block(3));
-    assertNode(g.block(2)).hasSuccessors(g.block(3));
-    assertNode(g.block(3)).hasSuccessors(g.block(0), g.end());
+    assertBlock(g, 0).hasSuccessors(1, 2);
+    assertBlock(g, 1).hasSuccessors(3);
+    assertBlock(g, 2).hasSuccessors(3);
+    assertBlock(g, 3).hasSuccessors(0, END);
   }
 
   @Test
   public void break_in_do_while() throws Exception {
     ControlFlowGraph g = build("do { if (a) { break; } f1(); } while(a);", 4);
-    assertNode(g.block(0)).hasSuccessors(g.block(1), g.block(2));
-    assertNode(g.block(1)).hasSuccessors(g.end());
-    assertNode(g.block(2)).hasSuccessors(g.block(3));
-    assertNode(g.block(3)).hasSuccessors(g.block(0), g.end());
+    assertBlock(g, 0).hasSuccessors(1, 2);
+    assertBlock(g, 1).hasSuccessors(END);
+    assertBlock(g, 2).hasSuccessors(3);
+    assertBlock(g, 3).hasSuccessors(0, END);
   }
 
   @Test
@@ -182,26 +180,32 @@ public class ControlFlowGraphTest {
     return cfg;
   }
 
-  public static class ControlFlowNodeAssert extends GenericAssert<ControlFlowNodeAssert, ControlFlowNode> {
 
-    protected ControlFlowNodeAssert(ControlFlowNode actual) {
-      super(ControlFlowNodeAssert.class, actual);
+  public static BlockAssert assertBlock(ControlFlowGraph cfg, int blockIndex) {
+    return new BlockAssert(cfg, blockIndex);
+  }
+
+  public static class BlockAssert {
+
+    private final ControlFlowGraph cfg;
+    private final int blockIndex;
+
+    public BlockAssert(ControlFlowGraph cfg, int blockIndex) {
+      this.cfg = cfg;
+      this.blockIndex = blockIndex;
     }
 
-    public static ControlFlowNodeAssert assertNode(ControlFlowNode actual) {
-      return new ControlFlowNodeAssert(actual);
+    public void hasSuccessors(int... expectedSuccessorIndexes) {
+      Set<String> actual = new TreeSet<>();
+      for (ControlFlowNode successor : cfg.block(blockIndex).successors()) {
+        actual.add(successor == cfg.end() ? "END" : Integer.toString(cfg.blocks().indexOf(successor)));
+      }
+      Set<String> expected = new TreeSet<>();
+      for (int expectedSuccessorIndex : expectedSuccessorIndexes) {
+        expected.add(expectedSuccessorIndex == END ? "END" : Integer.toString(expectedSuccessorIndex));
+      }
+      assertThat(actual).as("Successors of block " + blockIndex).isEqualTo(expected);
     }
-
-    public ControlFlowNodeAssert hasNoPredecessor() {
-      Assertions.assertThat(actual.predecessors()).isEmpty();
-      return this;
-    }
-
-    public ControlFlowNodeAssert hasSuccessors(ControlFlowNode... successors) {
-      Assertions.assertThat(actual.successors()).containsOnly(successors);
-      return this;
-    }
-
   }
 
 }
