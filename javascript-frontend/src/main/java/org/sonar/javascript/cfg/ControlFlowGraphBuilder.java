@@ -19,17 +19,23 @@
  */
 package org.sonar.javascript.cfg;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.HashMultimap;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Ordering;
 import com.google.common.collect.SetMultimap;
 import com.google.common.collect.Sets;
+import com.google.common.primitives.Ints;
 import java.util.ArrayDeque;
+import java.util.Comparator;
 import java.util.Deque;
 import java.util.HashSet;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Queue;
 import java.util.Set;
+import org.sonar.javascript.tree.impl.JavaScriptTree;
+import org.sonar.javascript.tree.impl.lexical.InternalSyntaxToken;
 import org.sonar.plugins.javascript.api.tree.ScriptTree;
 import org.sonar.plugins.javascript.api.tree.Tree;
 import org.sonar.plugins.javascript.api.tree.Tree.Kind;
@@ -46,6 +52,8 @@ import org.sonar.plugins.javascript.api.tree.statement.WhileStatementTree;
 
 class ControlFlowGraphBuilder {
 
+  private static final Ordering<MutableBlock> BLOCK_ORDERING = Ordering.from(new MutableBlockTokenIndexComparator());
+
   private final List<MutableBlock> blocks = new LinkedList<>();
   private final MutableBlock end = MutableBlock.createEnd();
   private MutableBlock currentBlock = createBlock();
@@ -58,7 +66,7 @@ class ControlFlowGraphBuilder {
       build(tree.items().items());
     }
     removeEmptyBlocks();
-    return new ControlFlowGraph(Lists.reverse(blocks), end);
+    return new ControlFlowGraph(sortedBlocks(), end);
   }
 
   private void removeEmptyBlocks() {
@@ -167,28 +175,19 @@ class ControlFlowGraphBuilder {
   }
 
   private void visitForStatement(ForStatementTree tree) {
-    MutableBlock conditionBlock = MutableBlock.create();
-    conditionBlock.addSuccessor(currentBlock);
-    conditionBlock.addElement(tree.condition());
+    MutableBlock conditionBlock = createBlock(tree.condition(), currentBlock);
+    MutableBlock updateBlock = createBlock(tree.update(), conditionBlock);
 
-    MutableBlock updateBlock = MutableBlock.create();
-    updateBlock.addSuccessor(conditionBlock);
-    updateBlock.addElement(tree.update());
-
+    pushLoop(updateBlock, currentBlock);
     MutableBlock loopBodyBlock = buildSubFlow(tree.statement(), updateBlock);
+    popLoop();
+
     conditionBlock.addSuccessor(loopBodyBlock);
-
-    // This has to be done at the end because blocks have to be in the correct order
-    blocks.add(updateBlock);
-    blocks.add(conditionBlock);
-
     currentBlock = createBlock(tree.init(), conditionBlock);
   }
 
   private void visitWhileStatement(WhileStatementTree tree) {
-    MutableBlock conditionBlock = MutableBlock.create();
-    conditionBlock.addSuccessor(currentBlock);
-    conditionBlock.addElement(tree.condition());
+    MutableBlock conditionBlock = createBlock(tree.condition(), currentBlock);
 
     pushLoop(conditionBlock, currentBlock);
     MutableBlock loopBodyBlock = buildSubFlow(tree.statement(), conditionBlock);
@@ -196,9 +195,6 @@ class ControlFlowGraphBuilder {
 
     conditionBlock.addSuccessor(loopBodyBlock);
     currentBlock = conditionBlock;
-
-    // This has to be done at the end because blocks have to be in the correct order
-    blocks.add(conditionBlock);
   }
 
   private void visitDoWhileStatement(DoWhileStatementTree tree) {
@@ -247,6 +243,27 @@ class ControlFlowGraphBuilder {
       block.addSuccessor(successor);
     }
     return block;
+  }
+
+  private List<MutableBlock> sortedBlocks() {
+    return BLOCK_ORDERING.sortedCopy(blocks);
+  }
+
+  private static class MutableBlockTokenIndexComparator implements Comparator<MutableBlock> {
+
+    @Override
+    public int compare(MutableBlock b1, MutableBlock b2) {
+
+      return Ints.compare(tokenIndex(b1), tokenIndex(b2));
+    }
+
+    private static int tokenIndex(MutableBlock block) {
+      Preconditions.checkArgument(!block.isEmpty(), "Cannot sort empty block");
+      JavaScriptTree tree = (JavaScriptTree) block.elements().get(0);
+      InternalSyntaxToken token = (InternalSyntaxToken) tree.getFirstToken();
+      return token.startIndex();
+    }
+
   }
 
   private static class Loop {

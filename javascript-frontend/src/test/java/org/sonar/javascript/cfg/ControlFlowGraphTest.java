@@ -185,6 +185,28 @@ public class ControlFlowGraphTest {
   }
 
   @Test
+  public void continue_in_for() throws Exception {
+    ControlFlowGraph g = build("for(i=0; i<10; i++) { if (a) continue; f1(); } ", 6);
+    assertBlock(g, 0).hasSuccessors(1);
+    assertBlock(g, 1).hasSuccessors(3, END);
+    assertBlock(g, 2).hasSuccessors(1);
+    assertBlock(g, 3).hasSuccessors(4, 5);
+    assertBlock(g, 4).hasSuccessors(2);
+    assertBlock(g, 5).hasSuccessors(2);
+  }
+
+  @Test
+  public void break_in_for() throws Exception {
+    ControlFlowGraph g = build("for(i=0; i<10; i++) { if (a) break; f1(); } ", 6);
+    assertBlock(g, 0).hasSuccessors(1);
+    assertBlock(g, 1).hasSuccessors(3, END);
+    assertBlock(g, 2).hasSuccessors(1);
+    assertBlock(g, 3).hasSuccessors(4, 5);
+    assertBlock(g, 4).hasSuccessors(END);
+    assertBlock(g, 5).hasSuccessors(2);
+  }
+
+  @Test
   public void invalid_empty_block() throws Exception {
     MutableBlock block = MutableBlock.create();
     thrown.expect(IllegalArgumentException.class);
