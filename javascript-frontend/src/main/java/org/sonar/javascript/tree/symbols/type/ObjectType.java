@@ -20,6 +20,7 @@
 package org.sonar.javascript.tree.symbols.type;
 
 import javax.annotation.Nullable;
+import org.sonar.plugins.javascript.api.symbols.Symbol;
 import org.sonar.plugins.javascript.api.symbols.Type;
 
 public class ObjectType implements Type {
@@ -60,9 +61,9 @@ public class ObjectType implements Type {
   }
 
   @Nullable
-  public FunctionType findMethod(String name) {
+  public Symbol property(String name) {
     if (classType != null) {
-      return classType.findMethod(name);
+      return classType.property(name);
     }
     return null;
   }

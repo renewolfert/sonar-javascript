@@ -31,6 +31,7 @@ import org.sonar.plugins.javascript.api.symbols.Type;
 import org.sonar.plugins.javascript.api.symbols.Type.Callability;
 import org.sonar.plugins.javascript.api.symbols.Type.Kind;
 import org.sonar.plugins.javascript.api.symbols.TypeSet;
+import org.sonar.plugins.javascript.api.symbols.Usage;
 import org.sonar.plugins.javascript.api.tree.Tree;
 import org.sonar.plugins.javascript.api.tree.declaration.FunctionDeclarationTree;
 import org.sonar.plugins.javascript.api.tree.declaration.InitializedBindingElementTree;
@@ -121,7 +122,7 @@ public class TypeVisitor extends DoubleDispatchVisitor {
     for (MethodDeclarationTree methodDeclarationTree : tree.methods()) {
       ExpressionTree name = methodDeclarationTree.name();
       if (name.is(Tree.Kind.IDENTIFIER_NAME)) {
-        classType.addMethod(((IdentifierTree) name).name(), FunctionType.create(methodDeclarationTree));
+        classType.addMethod((IdentifierTree) name, FunctionType.create(methodDeclarationTree));
       }
     }
 
@@ -156,10 +157,8 @@ public class TypeVisitor extends DoubleDispatchVisitor {
     inferParameterType(tree);
   }
 
-  private static void addType(ExpressionTree tree, @Nullable Type type) {
-    if (type != null) {
-      ((TypableTree) tree).add(type);
-    }
+  private static void addType(ExpressionTree tree, Type type) {
+    ((TypableTree) tree).add(type);
   }
 
   private static void inferParameterType(CallExpressionTree tree) {
@@ -262,11 +261,19 @@ public class TypeVisitor extends DoubleDispatchVisitor {
       }
 
     } else {
-      ObjectType objectType = (ObjectType) tree.object().types().getUniqueType(Kind.OBJECT);
-      if (objectType != null && tree.property() instanceof IdentifierTree) {
-        String property = ((IdentifierTree) tree.property()).name();
-        FunctionType method = objectType.findMethod(property);
-        addType(tree, method);
+      resolveObjectPropertyAccess(tree);
+    }
+  }
+
+  private void resolveObjectPropertyAccess(MemberExpressionTree tree) {
+    ObjectType objectType = (ObjectType) tree.object().types().getUniqueType(Kind.OBJECT);
+    if (objectType != null && tree.property() instanceof IdentifierTree) {
+      String property = ((IdentifierTree) tree.property()).name();
+      Symbol propertySymbol = objectType.property(property);
+      if (propertySymbol != null) {
+        addTypes(tree, propertySymbol.types());
+        // fixme might be write usage
+        propertySymbol.addUsage(Usage.create((IdentifierTree) tree.property(), Usage.Kind.READ));
       }
     }
   }

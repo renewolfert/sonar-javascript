@@ -19,16 +19,20 @@
  */
 package org.sonar.javascript.tree.symbols.type;
 
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.Map;
 import javax.annotation.Nullable;
+import org.sonar.plugins.javascript.api.symbols.Symbol;
+import org.sonar.plugins.javascript.api.symbols.Usage;
 import org.sonar.plugins.javascript.api.tree.expression.ClassTree;
+import org.sonar.plugins.javascript.api.tree.expression.IdentifierTree;
 
 public class ClassType extends ObjectType {
 
   private ClassTree classTree;
 
-  private Map<String, FunctionType> methods = new HashMap<>();
+  private Map<String, Symbol> properties = new HashMap<>();
 
   protected ClassType() {
     super(Callability.NON_CALLABLE);
@@ -55,12 +59,22 @@ public class ClassType extends ObjectType {
     return objectType;
   }
 
-  public void addMethod(String name, FunctionType functionType) {
-    methods.put(name, functionType);
+  public void addMethod(IdentifierTree name, FunctionType functionType) {
+    // fixme null scope
+    Symbol symbol = new Symbol(name.name(), Symbol.Kind.METHOD, null);
+    symbol.addUsage(Usage.create(name, Usage.Kind.DECLARATION));
+    symbol.addType(functionType);
+    properties.put(
+      name.name(),
+      symbol);
+  }
+
+  public Collection<Symbol> properties() {
+    return properties.values();
   }
 
   @Nullable
-  public FunctionType findMethod(String name) {
-    return methods.get(name);
+  public Symbol property(String name) {
+    return properties.get(name);
   }
 }
