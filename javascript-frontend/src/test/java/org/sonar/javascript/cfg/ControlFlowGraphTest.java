@@ -207,6 +207,15 @@ public class ControlFlowGraphTest {
   }
 
   @Test
+  public void for_in() throws Exception {
+    ControlFlowGraph g = build("f1(); for(var i in obj) { f2(); } ", 4);
+    assertBlock(g, 0).hasSuccessors(2);
+    assertBlock(g, 1).hasSuccessors(3, END);
+    assertBlock(g, 2).hasSuccessors(1);
+    assertBlock(g, 3).hasSuccessors(1);
+  }
+
+  @Test
   public void invalid_empty_block() throws Exception {
     MutableBlock block = MutableBlock.create();
     thrown.expect(IllegalArgumentException.class);

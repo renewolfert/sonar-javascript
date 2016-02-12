@@ -44,6 +44,7 @@ import org.sonar.plugins.javascript.api.tree.statement.BlockTree;
 import org.sonar.plugins.javascript.api.tree.statement.BreakStatementTree;
 import org.sonar.plugins.javascript.api.tree.statement.ContinueStatementTree;
 import org.sonar.plugins.javascript.api.tree.statement.DoWhileStatementTree;
+import org.sonar.plugins.javascript.api.tree.statement.ForInStatementTree;
 import org.sonar.plugins.javascript.api.tree.statement.ForStatementTree;
 import org.sonar.plugins.javascript.api.tree.statement.IfStatementTree;
 import org.sonar.plugins.javascript.api.tree.statement.LabelledStatementTree;
@@ -116,6 +117,8 @@ class ControlFlowGraphBuilder {
       visitIfStatement((IfStatementTree) tree);
     } else if (tree.is(Kind.FOR_STATEMENT)) {
       visitForStatement((ForStatementTree) tree);
+    } else if (tree.is(Kind.FOR_IN_STATEMENT)) {
+      visitForInStatement((ForInStatementTree) tree);
     } else if (tree.is(Kind.WHILE_STATEMENT)) {
       visitWhileStatement((WhileStatementTree) tree);
     } else if (tree.is(Kind.DO_WHILE_STATEMENT)) {
@@ -184,6 +187,14 @@ class ControlFlowGraphBuilder {
 
     conditionBlock.addSuccessor(loopBodyBlock);
     currentBlock = createBlock(tree.init(), conditionBlock);
+  }
+
+  private void visitForInStatement(ForInStatementTree tree) {
+    MutableBlock assignmentBlock = createBlock(tree.expression(), currentBlock);
+    MutableBlock expressionBlock = createBlock(tree.expression(), assignmentBlock);
+    MutableBlock loopBodyBlock = buildSubFlow(tree.statement(), assignmentBlock);
+    assignmentBlock.addSuccessor(loopBodyBlock);
+    currentBlock = createBlock(expressionBlock);
   }
 
   private void visitWhileStatement(WhileStatementTree tree) {
