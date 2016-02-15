@@ -37,6 +37,7 @@ import org.sonar.plugins.javascript.api.tree.statement.BreakStatementTree;
 import org.sonar.plugins.javascript.api.tree.statement.ContinueStatementTree;
 import org.sonar.plugins.javascript.api.tree.statement.DoWhileStatementTree;
 import org.sonar.plugins.javascript.api.tree.statement.ForInStatementTree;
+import org.sonar.plugins.javascript.api.tree.statement.ForOfStatementTree;
 import org.sonar.plugins.javascript.api.tree.statement.ForStatementTree;
 import org.sonar.plugins.javascript.api.tree.statement.IfStatementTree;
 import org.sonar.plugins.javascript.api.tree.statement.LabelledStatementTree;
@@ -95,6 +96,8 @@ class ControlFlowGraphBuilder {
       visitForStatement((ForStatementTree) tree);
     } else if (tree.is(Kind.FOR_IN_STATEMENT)) {
       visitForInStatement((ForInStatementTree) tree);
+    } else if (tree.is(Kind.FOR_OF_STATEMENT)) {
+      visitForOfStatement((ForOfStatementTree) tree);
     } else if (tree.is(Kind.WHILE_STATEMENT)) {
       visitWhileStatement((WhileStatementTree) tree);
     } else if (tree.is(Kind.DO_WHILE_STATEMENT)) {
@@ -154,9 +157,7 @@ class ControlFlowGraphBuilder {
     BranchingBlock conditionBlock = createBranchingBlock(tree.condition());
     SimpleBlock updateBlock = createSimpleBlock(tree.update(), conditionBlock);
 
-    pushLoop(updateBlock, currentBlock);
-    MutableBlock loopBodyBlock = buildSubFlow(tree.statement(), updateBlock);
-    popLoop();
+    MutableBlock loopBodyBlock = buildLoopBody(tree.statement(), updateBlock);
 
     conditionBlock.setSuccessors(loopBodyBlock, successor);
     currentBlock = createSimpleBlock(tree.init(), conditionBlock);
@@ -166,9 +167,17 @@ class ControlFlowGraphBuilder {
     MutableBlock successor = currentBlock;
     BranchingBlock assignmentBlock = createBranchingBlock(tree.variableOrExpression());
 
-    pushLoop(assignmentBlock, currentBlock);
-    MutableBlock loopBodyBlock = buildSubFlow(tree.statement(), assignmentBlock);
-    popLoop();
+    MutableBlock loopBodyBlock = buildLoopBody(tree.statement(), assignmentBlock);
+
+    assignmentBlock.setSuccessors(loopBodyBlock, successor);
+    currentBlock = createSimpleBlock(tree.expression(), assignmentBlock);
+  }
+
+  private void visitForOfStatement(ForOfStatementTree tree) {
+    MutableBlock successor = currentBlock;
+    BranchingBlock assignmentBlock = createBranchingBlock(tree.variableOrExpression());
+
+    MutableBlock loopBodyBlock = buildLoopBody(tree.statement(), assignmentBlock);
 
     assignmentBlock.setSuccessors(loopBodyBlock, successor);
     currentBlock = createSimpleBlock(tree.expression(), assignmentBlock);
@@ -178,9 +187,7 @@ class ControlFlowGraphBuilder {
     MutableBlock successor = currentBlock;
     BranchingBlock conditionBlock = createBranchingBlock(tree.condition());
 
-    pushLoop(conditionBlock, currentBlock);
-    MutableBlock loopBodyBlock = buildSubFlow(tree.statement(), conditionBlock);
-    popLoop();
+    MutableBlock loopBodyBlock = buildLoopBody(tree.statement(), conditionBlock);
 
     conditionBlock.setSuccessors(loopBodyBlock, successor);
     currentBlock = conditionBlock;
@@ -189,9 +196,7 @@ class ControlFlowGraphBuilder {
   private void visitDoWhileStatement(DoWhileStatementTree tree) {
     MutableBlock successor = currentBlock;
     BranchingBlock conditionBlock = createBranchingBlock(tree.condition());
-    pushLoop(conditionBlock, currentBlock);
-    MutableBlock loopBodyBlock = buildSubFlow(tree.statement(), conditionBlock);
-    popLoop();
+    MutableBlock loopBodyBlock = buildLoopBody(tree.statement(), conditionBlock);
     conditionBlock.setSuccessors(loopBodyBlock, successor);
     currentBlock = createSimpleBlock(loopBodyBlock);
   }
@@ -201,13 +206,12 @@ class ControlFlowGraphBuilder {
     build(tree.statement());
   }
 
-  private void pushLoop(MutableBlock continueTarget, MutableBlock breakTarget) {
-    loops.push(new Loop(continueTarget, breakTarget, currentLabel));
+  private MutableBlock buildLoopBody(StatementTree body, MutableBlock conditionBlock) {
+    loops.push(new Loop(conditionBlock, currentBlock, currentLabel));
     currentLabel = null;
-  }
-
-  private void popLoop() {
+    MutableBlock loopBodyBlock = buildSubFlow(body, conditionBlock);
     loops.pop();
+    return loopBodyBlock;
   }
 
   private MutableBlock buildSubFlow(StatementTree subFlowTree, MutableBlock successor) {

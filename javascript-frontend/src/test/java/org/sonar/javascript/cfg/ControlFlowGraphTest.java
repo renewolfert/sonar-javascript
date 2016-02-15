@@ -240,6 +240,14 @@ public class ControlFlowGraphTest {
   }
 
   @Test
+  public void for_of() throws Exception {
+    ControlFlowGraph g = build("for(let b0 of b1) { b2(); } ", 3, 1);
+    assertBlock(g, 0).hasSuccessors(2, END);
+    assertBlock(g, 1).hasSuccessors(0);
+    assertBlock(g, 2).hasSuccessors(0);
+  }
+
+  @Test
   public void invalid_empty_block() throws Exception {
     EndBlock end = new EndBlock();
     MutableBlock block = new SimpleBlock(end);
