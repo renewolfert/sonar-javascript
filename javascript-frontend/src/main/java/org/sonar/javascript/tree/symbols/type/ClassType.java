@@ -25,12 +25,9 @@ import java.util.Map;
 import javax.annotation.Nullable;
 import org.sonar.plugins.javascript.api.symbols.Symbol;
 import org.sonar.plugins.javascript.api.symbols.Usage;
-import org.sonar.plugins.javascript.api.tree.expression.ClassTree;
 import org.sonar.plugins.javascript.api.tree.expression.IdentifierTree;
 
 public class ClassType extends ObjectType {
-
-  private ClassTree classTree;
 
   private Map<String, Symbol> properties = new HashMap<>();
 
@@ -43,14 +40,8 @@ public class ClassType extends ObjectType {
     return Kind.CLASS;
   }
 
-  public static ClassType create(ClassTree classTree) {
-    ClassType type = new ClassType();
-    type.classTree = classTree;
-    return type;
-  }
-
-  public ClassTree classTree() {
-    return classTree;
+  public static ClassType create() {
+    return new ClassType();
   }
 
   public ObjectType createObject() {

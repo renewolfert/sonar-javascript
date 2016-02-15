@@ -69,7 +69,7 @@ public class ClassTreeImpl extends JavaScriptTree implements ClassTree, TypableT
     this.elements = elements;
     this.closeCurlyBraceToken = closeCurlyBraceToken;
 
-    this.classType = ClassType.create(this);
+    this.classType = ClassType.create();
   }
 
   public static ClassTreeImpl newClassExpression(

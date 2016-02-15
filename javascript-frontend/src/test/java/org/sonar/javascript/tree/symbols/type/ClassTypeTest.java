@@ -82,7 +82,7 @@ public class ClassTypeTest extends TypeTest {
 
     assertThat(type.callability()).isEqualTo(Callability.NON_CALLABLE);
     assertThat(type.classType()).isNotNull();
-    assertThat(type.classType().classTree()).isNotNull();
+    assertThat(type.classType().properties()).isNotEmpty();
 
   }
 
