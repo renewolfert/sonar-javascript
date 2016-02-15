@@ -70,6 +70,11 @@ public class ControlFlowGraphTest {
   }
 
   @Test
+  public void empty_statement() throws Exception {
+    build(";", 0);
+  }
+
+  @Test
   public void simple_statements() throws Exception {
     ControlFlowGraph g = build("foo(); var a; a = 2;", 1);
     assertBlock(g, 0).hasSuccessors(END);
@@ -277,6 +282,12 @@ public class ControlFlowGraphTest {
     assertBlock(g, 1).hasSuccessors(3);
     assertBlock(g, 2).hasSuccessors(3);
     assertBlock(g, 3).hasSuccessors(END);
+  }
+
+  @Test
+  public void with() throws Exception {
+    ControlFlowGraph g = build("with(b0) { x(); y(); }   ", 1);
+    assertBlock(g, 0).hasSuccessors(END).hasElements("b0", "x()", "y()");
   }
 
   @Test

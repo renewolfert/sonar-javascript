@@ -47,6 +47,7 @@ import org.sonar.plugins.javascript.api.tree.statement.ThrowStatementTree;
 import org.sonar.plugins.javascript.api.tree.statement.TryStatementTree;
 import org.sonar.plugins.javascript.api.tree.statement.VariableStatementTree;
 import org.sonar.plugins.javascript.api.tree.statement.WhileStatementTree;
+import org.sonar.plugins.javascript.api.tree.statement.WithStatementTree;
 
 class ControlFlowGraphBuilder {
 
@@ -124,6 +125,12 @@ class ControlFlowGraphBuilder {
       visitTryStatement((TryStatementTree) tree);
     } else if (tree.is(Kind.THROW_STATEMENT)) {
       visitThrowStatement((ThrowStatementTree) tree);
+    } else if (tree.is(Kind.WITH_STATEMENT)) {
+      WithStatementTree with = (WithStatementTree) tree;
+      build(with.statement());
+      currentBlock.addElement(with.expression());
+    } else if (tree.is(Kind.EMPTY_STATEMENT)) {
+      // Nothing to do
     } else {
       throw new IllegalArgumentException("Cannot build CFG for " + tree);
     }
