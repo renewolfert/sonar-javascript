@@ -19,6 +19,7 @@
  */
 package org.sonar.javascript.cfg;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
 import java.util.ArrayDeque;
@@ -31,9 +32,9 @@ import java.util.Set;
 import org.sonar.plugins.javascript.api.tree.ScriptTree;
 import org.sonar.plugins.javascript.api.tree.Tree;
 import org.sonar.plugins.javascript.api.tree.Tree.Kind;
-import org.sonar.plugins.javascript.api.tree.expression.IdentifierTree;
 import org.sonar.plugins.javascript.api.tree.statement.BlockTree;
 import org.sonar.plugins.javascript.api.tree.statement.BreakStatementTree;
+import org.sonar.plugins.javascript.api.tree.statement.CaseClauseTree;
 import org.sonar.plugins.javascript.api.tree.statement.ContinueStatementTree;
 import org.sonar.plugins.javascript.api.tree.statement.DoWhileStatementTree;
 import org.sonar.plugins.javascript.api.tree.statement.ExpressionStatementTree;
@@ -43,6 +44,8 @@ import org.sonar.plugins.javascript.api.tree.statement.ForStatementTree;
 import org.sonar.plugins.javascript.api.tree.statement.IfStatementTree;
 import org.sonar.plugins.javascript.api.tree.statement.LabelledStatementTree;
 import org.sonar.plugins.javascript.api.tree.statement.StatementTree;
+import org.sonar.plugins.javascript.api.tree.statement.SwitchClauseTree;
+import org.sonar.plugins.javascript.api.tree.statement.SwitchStatementTree;
 import org.sonar.plugins.javascript.api.tree.statement.ThrowStatementTree;
 import org.sonar.plugins.javascript.api.tree.statement.TryStatementTree;
 import org.sonar.plugins.javascript.api.tree.statement.VariableStatementTree;
@@ -55,7 +58,7 @@ class ControlFlowGraphBuilder {
   private final EndBlock end = new EndBlock();
   private MutableBlock currentBlock = createSimpleBlock(end);
   private MutableBlock start;
-  private final Deque<Loop> loops = new ArrayDeque<>();
+  private final Deque<Breakable> breakables = new ArrayDeque<>();
   private final Deque<MutableBlock> throwTargets = new ArrayDeque<>();
   private String currentLabel = null;
 
@@ -125,6 +128,8 @@ class ControlFlowGraphBuilder {
       visitTryStatement((TryStatementTree) tree);
     } else if (tree.is(Kind.THROW_STATEMENT)) {
       visitThrowStatement((ThrowStatementTree) tree);
+    } else if (tree.is(Kind.SWITCH_STATEMENT)) {
+      visitSwitchStatement((SwitchStatementTree) tree);
     } else if (tree.is(Kind.WITH_STATEMENT)) {
       WithStatementTree with = (WithStatementTree) tree;
       build(with.statement());
@@ -141,22 +146,29 @@ class ControlFlowGraphBuilder {
   }
 
   private void visitContinueStatement(ContinueStatementTree tree) {
-    currentBlock = createSimpleBlock(tree, getLoop(tree.label()).continueTarget);
-  }
-
-  private Loop getLoop(IdentifierTree label) {
-    if (label != null) {
-      for (Loop loop : loops) {
-        if (label.name().equals(loop.label)) {
-          return loop;
-        }
+    MutableBlock target = null;
+    String label = tree.label() == null ? null : tree.label().name();
+    for (Breakable breakable : breakables) {
+      if (breakable.continueTarget != null && (label == null || label.equals(breakable.label))) {
+        target = breakable.continueTarget;
+        break;
       }
     }
-    return loops.peek();
+    Preconditions.checkState(target != null, "No continue target can be found for label " + label);
+    currentBlock = createSimpleBlock(tree, target);
   }
 
   private void visitBreakStatement(BreakStatementTree tree) {
-    currentBlock = createSimpleBlock(tree, getLoop(tree.label()).breakTarget);
+    MutableBlock target = null;
+    String label = tree.label() == null ? null : tree.label().name();
+    for (Breakable breakable : breakables) {
+      if (label == null || label.equals(breakable.label)) {
+        target = breakable.breakTarget;
+        break;
+      }
+    }
+    Preconditions.checkState(target != null, "No break target can be found for label " + label);
+    currentBlock = createSimpleBlock(tree, target);
   }
 
   private void visitIfStatement(IfStatementTree tree) {
@@ -247,11 +259,32 @@ class ControlFlowGraphBuilder {
     currentBlock = createSimpleBlock(tree.expression(), throwTargets.peek());
   }
 
+  private void visitSwitchStatement(SwitchStatementTree tree) {
+    breakables.addFirst(new Breakable(null, currentBlock, null));
+    MutableBlock nextStatementBlock = currentBlock;
+    for (SwitchClauseTree switchCaseClause : Lists.reverse(tree.cases())) {
+      MutableBlock successor = currentBlock;
+      currentBlock = createSimpleBlock(successor);
+      build(switchCaseClause.statements());
+      if (!switchCaseClause.statements().isEmpty()) {
+        nextStatementBlock = currentBlock;
+      }
+      if (switchCaseClause.is(Kind.CASE_CLAUSE)) {
+        CaseClauseTree caseClause = (CaseClauseTree) switchCaseClause;
+        BranchingBlock caseBlock = createBranchingBlock(caseClause.expression());
+        caseBlock.setSuccessors(nextStatementBlock, successor);
+        currentBlock = caseBlock;
+      }
+    }
+    breakables.removeFirst();
+    currentBlock.addElement(tree.expression());
+  }
+
   private MutableBlock buildLoopBody(StatementTree body, MutableBlock conditionBlock) {
-    loops.push(new Loop(conditionBlock, currentBlock, currentLabel));
+    breakables.addFirst(new Breakable(conditionBlock, currentBlock, currentLabel));
     currentLabel = null;
     MutableBlock loopBodyBlock = buildSubFlow(body, conditionBlock);
-    loops.pop();
+    breakables.removeFirst();
     return loopBodyBlock;
   }
 
@@ -279,13 +312,13 @@ class ControlFlowGraphBuilder {
     return block;
   }
 
-  private static class Loop {
+  private static class Breakable {
 
     final MutableBlock continueTarget;
     final MutableBlock breakTarget;
     final String label;
 
-    public Loop(MutableBlock continueTarget, MutableBlock breakTarget, String label) {
+    public Breakable(MutableBlock continueTarget, MutableBlock breakTarget, String label) {
       this.continueTarget = continueTarget;
       this.breakTarget = breakTarget;
       this.label = label;

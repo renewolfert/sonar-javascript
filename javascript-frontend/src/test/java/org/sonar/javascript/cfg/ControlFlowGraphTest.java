@@ -168,6 +168,22 @@ public class ControlFlowGraphTest {
   }
 
   @Test
+  public void continue_with_label() throws Exception {
+    ControlFlowGraph g = build("outer: while (b0) { inner: while (b1) { b2(); continue outer; } b3(); }", 4);
+    assertBlock(g, 0).hasSuccessors(1, END);
+    assertBlock(g, 1).hasSuccessors(2, 3);
+    assertBlock(g, 2).hasSuccessors(0);
+    assertBlock(g, 3).hasSuccessors(0);
+  }
+
+  @Test
+  public void continue_with_invalid_label() throws Exception {
+    thrown.expect(IllegalStateException.class);
+    thrown.expectMessage("label xxx");
+    build("outer: while (b0) { inner: while (b1) { b2(); continue xxx; } b3(); }", 0);
+  }
+
+  @Test
   public void break_in_do_while() throws Exception {
     ControlFlowGraph g = build("do { if (a) { break; } f1(); } while(a);", 4);
     assertBlock(g, 0).hasSuccessors(1, 2);
@@ -183,12 +199,13 @@ public class ControlFlowGraphTest {
     assertBlock(g, 1).hasSuccessors(2, 3);
     assertBlock(g, 2).hasSuccessors(END);
     assertBlock(g, 3).hasSuccessors(0);
+  }
 
-    g = build("outer: while (b0) { inner: while (b1) { b2(); break xxx; } b3(); }", 4);
-    assertBlock(g, 0).hasSuccessors(1, END);
-    assertBlock(g, 1).hasSuccessors(2, 3);
-    assertBlock(g, 2).hasSuccessors(3);
-    assertBlock(g, 3).hasSuccessors(0);
+  @Test
+  public void break_with_invalid_label() throws Exception {
+    thrown.expect(IllegalStateException.class);
+    thrown.expectMessage("label xxx");
+    build("outer: while (b0) { inner: while (b1) { b2(); break xxx; } b3(); }", 0);
   }
 
   @Test
@@ -282,6 +299,51 @@ public class ControlFlowGraphTest {
     assertBlock(g, 1).hasSuccessors(3);
     assertBlock(g, 2).hasSuccessors(3);
     assertBlock(g, 3).hasSuccessors(END);
+  }
+
+  @Test
+  public void empty_switch() throws Exception {
+    ControlFlowGraph g = build("switch(b0) {}", 1);
+    assertBlock(g, 0).hasSuccessors(END).hasElements("b0");
+  }
+
+  @Test
+  public void switch_with_no_break() throws Exception {
+    ControlFlowGraph g = build("b0(); switch(b0b) { case b0c: b1(); case b2: b3(); default: b4(); }", 5);
+    assertBlock(g, 0).hasSuccessors(1, 2).hasElements("b0()", "b0b", "b0c");
+    assertBlock(g, 1).hasSuccessors(2).hasElements("b1()");
+    assertBlock(g, 2).hasSuccessors(3, 4).hasElements("b2");
+    assertBlock(g, 3).hasSuccessors(4).hasElements("b3()");
+    assertBlock(g, 4).hasSuccessors(END).hasElements("b4()");
+  }
+
+  @Test
+  public void switch_with_break() throws Exception {
+    ControlFlowGraph g = build("b0(); switch(b0b) { case b0c: b1(); break; case b2: b3(); default: b4(); }", 5);
+    assertBlock(g, 0).hasSuccessors(1, 2).hasElements("b0()", "b0b", "b0c");
+    assertBlock(g, 1).hasSuccessors(END).hasElements("b1()", "break;");
+    assertBlock(g, 2).hasSuccessors(3, 4).hasElements("b2");
+    assertBlock(g, 3).hasSuccessors(4).hasElements("b3()");
+    assertBlock(g, 4).hasSuccessors(END).hasElements("b4()");
+  }
+
+  @Test
+  public void switch_with_adjacent_cases() throws Exception {
+    ControlFlowGraph g = build("b0(); switch(b0b) { case b0c: b1(); case b2: case b3: b4(); }", 5);
+    assertBlock(g, 0).hasSuccessors(1, 2).hasElements("b0()", "b0b", "b0c");
+    assertBlock(g, 1).hasSuccessors(2).hasElements("b1()");
+    assertBlock(g, 2).hasSuccessors(3, 4).hasElements("b2");
+    assertBlock(g, 3).hasSuccessors(4, END).hasElements("b3");
+    assertBlock(g, 4).hasSuccessors(END).hasElements("b4()");
+  }
+
+  @Test
+  public void continue_in_switch_in_loop() throws Exception {
+    ControlFlowGraph g = build("while(b0) { switch (b1) { case b1b: b2(); continue; } b3(); } ", 4);
+    assertBlock(g, 0).hasSuccessors(1, END).hasElements("b0");
+    assertBlock(g, 1).hasSuccessors(2, 3);
+    assertBlock(g, 2).hasSuccessors(0);
+    assertBlock(g, 3).hasSuccessors(0);
   }
 
   @Test
