@@ -190,6 +190,45 @@ public class UsageTest extends JavaScriptTreeModelTest {
 
   }
 
+  @Test
+  public void imported_symbols() throws Exception {
+    Symbol defaultMember = symbol("DefaultMember");
+    assertThat(defaultMember.scope().isGlobal()).isTrue();
+    assertThat(defaultMember.usages()).hasSize(2);
+    assertThat(defaultMember.is(Kind.IMPORT)).isTrue();
+
+    Symbol allMembers = symbol("AllMembers");
+    assertThat(allMembers.scope().isGlobal()).isTrue();
+    assertThat(allMembers.usages()).hasSize(1);
+    assertThat(allMembers.is(Kind.IMPORT)).isTrue();
+
+    Symbol member1 = symbol("member1");
+    assertThat(member1.scope().isGlobal()).isTrue();
+    assertThat(member1.usages()).hasSize(2);
+    assertThat(member1.is(Kind.IMPORT)).isTrue();
+
+    Symbol member2 = symbol("member2");
+    assertThat(member2.scope().isGlobal()).isTrue();
+    assertThat(member2.usages()).hasSize(1);
+    assertThat(member2.is(Kind.IMPORT)).isTrue();
+
+    assertThat(SYMBOL_MODEL.getSymbols("member3")).isEmpty();
+    Symbol member3 = symbol("member3Alias");
+    assertThat(member3.scope().isGlobal()).isTrue();
+    assertThat(member3.usages()).hasSize(1);
+    assertThat(member3.is(Kind.IMPORT)).isTrue();
+
+    Symbol member4 = symbol("member4");
+    assertThat(member4.scope().isGlobal()).isTrue();
+    assertThat(member4.usages()).hasSize(1);
+    assertThat(member4.is(Kind.IMPORT)).isTrue();
+
+    Symbol defaultMember1 = symbol("DefaultMember1");
+    assertThat(defaultMember1.scope().isGlobal()).isTrue();
+    assertThat(defaultMember1.usages()).hasSize(1);
+    assertThat(defaultMember1.is(Kind.IMPORT)).isTrue();
+  }
+
   public Collection<Usage> usagesFor(String name) {
     return symbol(name).usages();
   }
