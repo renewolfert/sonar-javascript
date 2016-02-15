@@ -36,12 +36,16 @@ import org.sonar.plugins.javascript.api.tree.statement.BlockTree;
 import org.sonar.plugins.javascript.api.tree.statement.BreakStatementTree;
 import org.sonar.plugins.javascript.api.tree.statement.ContinueStatementTree;
 import org.sonar.plugins.javascript.api.tree.statement.DoWhileStatementTree;
+import org.sonar.plugins.javascript.api.tree.statement.ExpressionStatementTree;
 import org.sonar.plugins.javascript.api.tree.statement.ForInStatementTree;
 import org.sonar.plugins.javascript.api.tree.statement.ForOfStatementTree;
 import org.sonar.plugins.javascript.api.tree.statement.ForStatementTree;
 import org.sonar.plugins.javascript.api.tree.statement.IfStatementTree;
 import org.sonar.plugins.javascript.api.tree.statement.LabelledStatementTree;
 import org.sonar.plugins.javascript.api.tree.statement.StatementTree;
+import org.sonar.plugins.javascript.api.tree.statement.ThrowStatementTree;
+import org.sonar.plugins.javascript.api.tree.statement.TryStatementTree;
+import org.sonar.plugins.javascript.api.tree.statement.VariableStatementTree;
 import org.sonar.plugins.javascript.api.tree.statement.WhileStatementTree;
 
 class ControlFlowGraphBuilder {
@@ -51,9 +55,11 @@ class ControlFlowGraphBuilder {
   private MutableBlock currentBlock = createSimpleBlock(end);
   private MutableBlock start;
   private final Deque<Loop> loops = new ArrayDeque<>();
+  private final Deque<MutableBlock> throwTargets = new ArrayDeque<>();
   private String currentLabel = null;
 
   public ControlFlowGraph createGraph(ScriptTree tree) {
+    throwTargets.push(end);
     if(tree.items() != null) {
       build(tree.items().items());
     }
@@ -88,8 +94,10 @@ class ControlFlowGraphBuilder {
   }
 
   private void build(Tree tree) {
-    if (tree.is(Kind.EXPRESSION_STATEMENT, Kind.VARIABLE_STATEMENT)) {
-      visitSimpleStatement(tree);
+    if (tree.is(Kind.EXPRESSION_STATEMENT)) {
+      currentBlock.addElement(((ExpressionStatementTree) tree).expression());
+    } else if (tree.is(Kind.VARIABLE_STATEMENT)) {
+      currentBlock.addElement(((VariableStatementTree) tree).declaration());
     } else if (tree.is(Kind.IF_STATEMENT)) {
       visitIfStatement((IfStatementTree) tree);
     } else if (tree.is(Kind.FOR_STATEMENT)) {
@@ -112,6 +120,10 @@ class ControlFlowGraphBuilder {
       build(((BlockTree) tree).statements());
     } else if (tree.is(Kind.LABELLED_STATEMENT)) {
       visitLabelledStatement((LabelledStatementTree) tree);
+    } else if (tree.is(Kind.TRY_STATEMENT)) {
+      visitTryStatement((TryStatementTree) tree);
+    } else if (tree.is(Kind.THROW_STATEMENT)) {
+      visitThrowStatement((ThrowStatementTree) tree);
     } else {
       throw new IllegalArgumentException("Cannot build CFG for " + tree);
     }
@@ -206,6 +218,28 @@ class ControlFlowGraphBuilder {
     build(tree.statement());
   }
 
+  private void visitTryStatement(TryStatementTree tree) {
+    if (tree.finallyBlock() != null) {
+      currentBlock = createSimpleBlock(currentBlock);
+      build(tree.finallyBlock());
+    }
+
+    if (tree.catchBlock() != null) {
+      currentBlock = createSimpleBlock(currentBlock);
+      build(tree.catchBlock().block());
+      currentBlock.addElement(tree.catchBlock().parameter());
+    }
+
+    throwTargets.push(currentBlock);
+    currentBlock = createSimpleBlock(currentBlock);
+    build(tree.block());
+    throwTargets.pop();
+  }
+
+  private void visitThrowStatement(ThrowStatementTree tree) {
+    currentBlock = createSimpleBlock(tree.expression(), throwTargets.peek());
+  }
+
   private MutableBlock buildLoopBody(StatementTree body, MutableBlock conditionBlock) {
     loops.push(new Loop(conditionBlock, currentBlock, currentLabel));
     currentLabel = null;
@@ -218,10 +252,6 @@ class ControlFlowGraphBuilder {
     currentBlock = createSimpleBlock(successor);
     build(subFlowTree);
     return currentBlock;
-  }
-
-  private void visitSimpleStatement(Tree tree) {
-    currentBlock.addElement(tree);
   }
   
   private BranchingBlock createBranchingBlock(Tree element) {

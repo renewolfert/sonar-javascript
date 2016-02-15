@@ -21,10 +21,12 @@ package org.sonar.javascript.cfg;
 
 import com.google.common.base.Charsets;
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Ordering;
 import com.google.common.primitives.Ints;
 import com.sonar.sslr.api.typed.ActionParser;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Set;
@@ -35,10 +37,10 @@ import org.junit.rules.ExpectedException;
 import org.sonar.javascript.parser.JavaScriptParserBuilder;
 import org.sonar.javascript.tree.impl.JavaScriptTree;
 import org.sonar.javascript.tree.impl.lexical.InternalSyntaxToken;
+import org.sonar.javascript.utils.SourceBuilder;
 import org.sonar.plugins.javascript.api.tree.ScriptTree;
 import org.sonar.plugins.javascript.api.tree.Tree;
 import org.sonar.plugins.javascript.api.tree.Tree.Kind;
-import org.sonar.plugins.javascript.api.tree.statement.ExpressionStatementTree;
 
 import static org.fest.assertions.Assertions.assertThat;
 
@@ -73,8 +75,7 @@ public class ControlFlowGraphTest {
     assertBlock(g, 0).hasSuccessors(END);
     ControlFlowBlock block = g.blocks().iterator().next();
     assertThat(block.elements()).hasSize(3);
-    ExpressionStatementTree firstElement = (ExpressionStatementTree) (block.elements().get(0));
-    assertThat(firstElement.expression().is(Kind.CALL_EXPRESSION)).isTrue();
+    assertThat(block.elements().get(0).is(Kind.CALL_EXPRESSION)).isTrue();
   }
 
   @Test
@@ -248,6 +249,37 @@ public class ControlFlowGraphTest {
   }
 
   @Test
+  public void try_catch() throws Exception {
+    ControlFlowGraph g = build("try { b0(); } catch(e) { foo(); } ", 2);
+    assertBlock(g, 0).hasSuccessors(1).hasElements("b0()");
+    assertBlock(g, 1).hasSuccessors(END).hasElements("e", "foo()");
+  }
+
+  @Test
+  public void try_finally() throws Exception {
+    ControlFlowGraph g = build("try { b0(); } finally { bar(); } ", 2);
+    assertBlock(g, 0).hasSuccessors(1).hasElements("b0()");
+    assertBlock(g, 1).hasSuccessors(END).hasElements("bar()");
+  }
+
+  @Test
+  public void throw_without_try() throws Exception {
+    ControlFlowGraph g = build("if (b0) { throw b1; } b2(); ", 3);
+    assertBlock(g, 0).hasSuccessors(1, 2);
+    assertBlock(g, 1).hasSuccessors(END);
+    assertBlock(g, 2).hasSuccessors(END);
+  }
+
+  @Test
+  public void throw_in_try() throws Exception {
+    ControlFlowGraph g = build("try { if (b0) { throw b1; } b2(); } catch(b3) { foo(); } ", 4);
+    assertBlock(g, 0).hasSuccessors(1, 2);
+    assertBlock(g, 1).hasSuccessors(3);
+    assertBlock(g, 2).hasSuccessors(3);
+    assertBlock(g, 3).hasSuccessors(END);
+  }
+
+  @Test
   public void invalid_empty_block() throws Exception {
     EndBlock end = new EndBlock();
     MutableBlock block = new SimpleBlock(end);
@@ -280,24 +312,40 @@ public class ControlFlowGraphTest {
 
     private final ControlFlowGraph cfg;
     private final int blockIndex;
+    private final List<ControlFlowBlock> blocks;
 
     public BlockAssert(ControlFlowGraph cfg, int blockIndex) {
       this.cfg = cfg;
       this.blockIndex = blockIndex;
+      this.blocks = sortBlocks(cfg.blocks());
     }
 
-    public void hasSuccessors(int... expectedSuccessorIndexes) {
+    public BlockAssert hasSuccessors(int... expectedSuccessorIndexes) {
       Set<String> actual = new TreeSet<>();
-      List<ControlFlowBlock> blocks = sortBlocks(cfg.blocks());
       for (ControlFlowNode successor : blocks.get(blockIndex).successors()) {
         actual.add(successor == cfg.end() ? "END" : Integer.toString(blocks.indexOf(successor)));
       }
+
       Set<String> expected = new TreeSet<>();
       for (int expectedSuccessorIndex : expectedSuccessorIndexes) {
         expected.add(expectedSuccessorIndex == END ? "END" : Integer.toString(expectedSuccessorIndex));
       }
+
       assertThat(actual).as("Successors of block " + blockIndex).isEqualTo(expected);
+
+      return this;
     }
+
+    public BlockAssert hasElements(String... elementSources) {
+      List<String> actual = new ArrayList<>();
+      for (Tree element : blocks.get(blockIndex).elements()) {
+        actual.add(SourceBuilder.build(element).trim());
+      }
+      assertThat(actual).isEqualTo(ImmutableList.copyOf(elementSources));
+
+      return this;
+    }
+
   }
 
   private static List<ControlFlowBlock> sortBlocks(Iterable<ControlFlowBlock> blocks) {
