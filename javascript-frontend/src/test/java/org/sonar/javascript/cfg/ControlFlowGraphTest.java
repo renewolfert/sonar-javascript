@@ -348,8 +348,32 @@ public class ControlFlowGraphTest {
 
   @Test
   public void with() throws Exception {
-    ControlFlowGraph g = build("with(b0) { x(); y(); }   ", 1);
+    ControlFlowGraph g = build("with(b0) { x(); y(); }", 1);
     assertBlock(g, 0).hasSuccessors(END).hasElements("b0", "x()", "y()");
+  }
+
+  @Test
+  public void function_declaration() throws Exception {
+    ControlFlowGraph g = build("function f() { if (a) { foo() } }", 1);
+    assertBlock(g, 0).hasSuccessors(END);
+  }
+
+  @Test
+  public void generator_declaration() throws Exception {
+    ControlFlowGraph g = build("function* f() { if (a) { foo() } }", 1);
+    assertBlock(g, 0).hasSuccessors(END);
+  }
+
+  @Test
+  public void class_declaration() throws Exception {
+    ControlFlowGraph g = build("class A { f() { if (a) { foo() } } }", 1);
+    assertBlock(g, 0).hasSuccessors(END);
+  }
+
+  @Test
+  public void debugger() throws Exception {
+    ControlFlowGraph g = build("debugger;", 1);
+    assertBlock(g, 0).hasSuccessors(END);
   }
 
   @Test
